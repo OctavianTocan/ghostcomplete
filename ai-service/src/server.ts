@@ -1,9 +1,10 @@
 import { performance } from "node:perf_hooks";
 import type { CompletionEngine } from "./ai.js";
 import type { ServiceConfig } from "./config.js";
+import { noopLogger, type TraceLogger } from "./logger.js";
 import { ensureProfile } from "./profile.js";
 import { buildPrompt } from "./prompt.js";
-import { hashContext } from "./privacy.js";
+import { hashContext, hashText } from "./privacy.js";
 import { parseCompleteRequest, parseLearnRequest, ValidationError } from "./schema.js";
 import { LearningStore } from "./storage.js";
 
@@ -32,22 +33,50 @@ function isAuthorized(req: Request, token: string): boolean {
   return req.headers.get("authorization") === `Bearer ${token}`;
 }
 
-export function createServer(config: ServiceConfig, engine: CompletionEngine, store: LearningStore): Bun.Server<unknown> {
+export function createServer(
+  config: ServiceConfig,
+  engine: CompletionEngine,
+  store: LearningStore,
+  logger: TraceLogger = noopLogger,
+): Bun.Server<unknown> {
   if (!isLoopbackHost(config.host)) {
     throw new Error("GhostComplete sidecar must bind to a loopback host");
   }
 
-  return Bun.serve({
+  logger.info("server_starting", {
+    host: config.host,
+    requestedPort: config.port,
+    model: config.model,
+    databasePath: config.databasePath,
+    profilePath: config.profilePath,
+    fakeCompletion: config.fakeCompletion !== undefined,
+  });
+
+  const server = Bun.serve({
     hostname: config.host,
     port: config.port,
     async fetch(req) {
       const url = new URL(req.url);
+      const requestStarted = performance.now();
+      let requestId: string | undefined;
+
+      logger.debug("http_request_started", {
+        method: req.method,
+        path: url.pathname,
+        hasAuthorization: req.headers.has("authorization"),
+      });
 
       if (req.method === "GET" && url.pathname === "/health") {
+        logger.debug("health_check", { latencyMs: Math.round(performance.now() - requestStarted) });
         return json({ ok: true, model: config.model });
       }
 
       if (!isAuthorized(req, config.token)) {
+        logger.warn("http_request_unauthorized", {
+          method: req.method,
+          path: url.pathname,
+          latencyMs: Math.round(performance.now() - requestStarted),
+        });
         return json({ error: "unauthorized" }, 401);
       }
 
@@ -55,38 +84,101 @@ export function createServer(config: ServiceConfig, engine: CompletionEngine, st
         if (req.method === "POST" && url.pathname === "/complete") {
           const body = await readBody(req);
           const completeRequest = parseCompleteRequest(body);
+          requestId = completeRequest.requestId;
           const contextHash = hashContext(completeRequest.context);
           const profile = ensureProfile(config.profilePath);
           const examples = store.getExamples(completeRequest.app);
           const prompt = buildPrompt(completeRequest, profile, examples);
-          const start = performance.now();
+
+          logger.info("completion_request_received", {
+            requestId,
+            appBundleId: completeRequest.app.bundleId,
+            appName: completeRequest.app.name,
+            contextLength: completeRequest.context.length,
+            contextHash,
+            hasSelection: completeRequest.selection !== undefined,
+            selectionLocation: completeRequest.selection?.location ?? null,
+            selectionLength: completeRequest.selection?.length ?? null,
+            examplesCount: examples.length,
+          });
+
           store.recordCompletionRequest(completeRequest.requestId, contextHash, completeRequest.app);
           const completion = await engine.complete(completeRequest.context, prompt);
+          const latencyMs = Math.round(performance.now() - requestStarted);
+
+          logger.info("completion_request_succeeded", {
+            requestId,
+            model: config.model,
+            latencyMs,
+            completionLength: completion.length,
+            completionHash: hashText(completion),
+          });
 
           return json({
             requestId: completeRequest.requestId,
             completion,
             model: config.model,
-            latencyMs: Math.round(performance.now() - start),
+            latencyMs,
           });
         }
 
         if (req.method === "POST" && url.pathname === "/learn") {
           const body = await readBody(req);
           const learnRequest = parseLearnRequest(body);
+          requestId = learnRequest.requestId;
+          logger.info("learn_event_received", {
+            requestId,
+            eventType: learnRequest.event,
+            appBundleId: learnRequest.app.bundleId,
+            appName: learnRequest.app.name,
+            contextHash: learnRequest.contextHash,
+            suggestionLength: learnRequest.suggestion.length,
+            suggestionHash: hashText(learnRequest.suggestion),
+          });
           store.recordLearnEvent(learnRequest);
+          logger.info("learn_event_recorded", {
+            requestId,
+            eventType: learnRequest.event,
+            latencyMs: Math.round(performance.now() - requestStarted),
+          });
           return json({ ok: true });
         }
 
+        logger.warn("http_request_not_found", {
+          method: req.method,
+          path: url.pathname,
+          latencyMs: Math.round(performance.now() - requestStarted),
+        });
         return json({ error: "not_found" }, 404);
       } catch (error) {
         if (error instanceof ValidationError) {
+          logger.warn("request_validation_failed", {
+            path: url.pathname,
+            requestId: requestId ?? null,
+            message: error.message,
+            latencyMs: Math.round(performance.now() - requestStarted),
+          });
           return json({ error: "bad_request", message: error.message }, 400);
         }
 
         const code = error instanceof Error && error.name === "AbortError" ? "timeout" : "sidecar_error";
+        logger.error("request_failed", {
+          path: url.pathname,
+          requestId: requestId ?? null,
+          code,
+          message: error instanceof Error ? error.message : String(error),
+          latencyMs: Math.round(performance.now() - requestStarted),
+        });
         return json({ error: code }, code === "timeout" ? 504 : 500);
       }
     }
   });
+
+  logger.info("server_listening", {
+    host: config.host,
+    port: server.port,
+    model: config.model,
+  });
+
+  return server;
 }

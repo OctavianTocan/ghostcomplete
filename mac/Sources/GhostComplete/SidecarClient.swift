@@ -38,10 +38,12 @@ final class SidecarClient {
 
     func start(apiKey: String?) throws {
         if process?.isRunning == true {
+            TraceLogger.shared.debug("sidecar_start_skipped_already_running", fields: ["port": port ?? -1])
             return
         }
 
         guard let scriptURL = sidecarScriptURL() else {
+            TraceLogger.shared.error("sidecar_script_missing")
             throw SidecarError.missingScript
         }
 
@@ -54,23 +56,43 @@ final class SidecarClient {
         let sidecarPort = configuredPort()
         environment["GHOSTCOMPLETE_TOKEN"] = token
         environment["GHOSTCOMPLETE_APP_SUPPORT"] = settings.appSupportURL.path
+        environment["GHOSTCOMPLETE_LOG_DIR"] = settings.logsURL.path
         environment["GHOSTCOMPLETE_PORT"] = String(sidecarPort)
         if let apiKey, !apiKey.isEmpty {
             environment["AI_GATEWAY_API_KEY"] = apiKey
         }
         process.environment = environment
+        TraceLogger.shared.info("sidecar_launch_prepared", fields: [
+            "scriptPath": scriptURL.path,
+            "executablePath": command.executableURL.path,
+            "argumentCount": command.arguments.count,
+            "port": sidecarPort,
+            "hasApiKey": apiKey?.isEmpty == false,
+            "logDir": settings.logsURL.path
+        ])
 
         do {
             try process.run()
             self.process = process
             self.port = sidecarPort
+            TraceLogger.shared.info("sidecar_process_started", fields: [
+                "processId": Int(process.processIdentifier),
+                "port": sidecarPort
+            ])
         } catch {
+            TraceLogger.shared.error("sidecar_process_start_failed", fields: ["error": error.localizedDescription])
             throw SidecarError.launchFailed(error.localizedDescription)
         }
     }
 
     func stop() {
-        process?.terminate()
+        if let process {
+            TraceLogger.shared.info("sidecar_process_terminate_requested", fields: [
+                "processId": Int(process.processIdentifier),
+                "isRunning": process.isRunning
+            ])
+            process.terminate()
+        }
         process = nil
         port = nil
     }
@@ -82,6 +104,12 @@ final class SidecarClient {
             app: snapshot.app,
             selection: snapshot.selection
         )
+        TraceLogger.shared.debug("sidecar_complete_post_prepared", fields: [
+            "requestId": requestId,
+            "contextLength": snapshot.context.count,
+            "contextHash": snapshot.context.ghostCompleteSHA256,
+            "appBundleId": snapshot.app.bundleId
+        ])
         post(path: "/complete", body: request, completion: completion)
     }
 
@@ -93,6 +121,12 @@ final class SidecarClient {
             suggestion: suggestion,
             app: snapshot.app
         )
+        TraceLogger.shared.debug("sidecar_learn_post_prepared", fields: [
+            "requestId": requestId,
+            "suggestionLength": suggestion.count,
+            "suggestionHash": suggestion.ghostCompleteSHA256,
+            "appBundleId": snapshot.app.bundleId
+        ])
         post(path: "/learn", body: request) { (_: Result<LearnResponse, Error>) in }
     }
 
@@ -102,6 +136,7 @@ final class SidecarClient {
         completion: @escaping @Sendable (Result<Response, Error>) -> Void
     ) {
         guard let port else {
+            TraceLogger.shared.warn("sidecar_post_missing_port", fields: ["path": path])
             completion(.failure(SidecarError.missingPort))
             return
         }
@@ -114,12 +149,25 @@ final class SidecarClient {
         do {
             urlRequest.httpBody = try JSONEncoder().encode(body)
         } catch {
+            TraceLogger.shared.error("sidecar_post_encode_failed", fields: [
+                "path": path,
+                "error": error.localizedDescription
+            ])
             completion(.failure(error))
             return
         }
 
+        let startedAt = Date()
+        TraceLogger.shared.debug("sidecar_post_started", fields: ["path": path, "port": port])
         URLSession.shared.dataTask(with: urlRequest) { data, response, error in
             if let error {
+                Task { @MainActor in
+                    TraceLogger.shared.error("sidecar_post_failed", fields: [
+                        "path": path,
+                        "error": error.localizedDescription,
+                        "latencyMs": Int(Date().timeIntervalSince(startedAt) * 1000)
+                    ])
+                }
                 completion(.failure(error))
                 return
             }
@@ -127,12 +175,38 @@ final class SidecarClient {
                   (200..<300).contains(http.statusCode),
                   let data
             else {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                Task { @MainActor in
+                    TraceLogger.shared.error("sidecar_post_bad_response", fields: [
+                        "path": path,
+                        "status": status,
+                        "latencyMs": Int(Date().timeIntervalSince(startedAt) * 1000)
+                    ])
+                }
                 completion(.failure(SidecarError.badResponse))
                 return
             }
             do {
-                completion(.success(try JSONDecoder().decode(Response.self, from: data)))
+                let decoded = try JSONDecoder().decode(Response.self, from: data)
+                Task { @MainActor in
+                    TraceLogger.shared.debug("sidecar_post_succeeded", fields: [
+                        "path": path,
+                        "status": http.statusCode,
+                        "bytes": data.count,
+                        "latencyMs": Int(Date().timeIntervalSince(startedAt) * 1000)
+                    ])
+                }
+                completion(.success(decoded))
             } catch {
+                Task { @MainActor in
+                    TraceLogger.shared.error("sidecar_post_decode_failed", fields: [
+                        "path": path,
+                        "status": http.statusCode,
+                        "bytes": data.count,
+                        "error": error.localizedDescription,
+                        "latencyMs": Int(Date().timeIntervalSince(startedAt) * 1000)
+                    ])
+                }
                 completion(.failure(error))
             }
         }.resume()

@@ -16,6 +16,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         do {
             try settings.ensureApplicationSupport()
+            TraceLogger.shared.configure(fileURL: settings.appLogURL)
+            TraceLogger.shared.info("app_launched", fields: [
+                "bundleId": Bundle.main.bundleIdentifier ?? "unknown",
+                "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+            ])
         } catch {
             NSLog("[GhostComplete] Could not create Application Support: \(error)")
         }
@@ -27,7 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        TraceLogger.shared.info("app_will_terminate")
         coordinator.stopSidecar()
+        TraceLogger.shared.flush()
     }
 
     private func configureMenu() {
@@ -43,11 +50,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
         item.menu = menu
         statusItem = item
+        TraceLogger.shared.debug("menu_configured")
     }
 
     private func ensureAccessibility() {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
+        let trusted = AXIsProcessTrustedWithOptions(options)
+        TraceLogger.shared.info("accessibility_trust_checked", fields: ["trusted": trusted])
     }
 
     private func installKeyMonitor() {
@@ -56,30 +65,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if keyMonitor?.start() != true {
+            TraceLogger.shared.error("input_monitoring_event_tap_failed")
             showPermissionAlert(
                 title: "Input Monitoring Required",
                 message: "GhostComplete could not create its keyboard event tap. Enable Input Monitoring for GhostComplete in System Settings."
             )
+        } else {
+            TraceLogger.shared.info("input_monitoring_event_tap_started")
         }
     }
 
     @objc private func openProfile() {
+        TraceLogger.shared.info("menu_open_profile", fields: ["path": settings.profileURL.path])
         NSWorkspace.shared.open(settings.profileURL)
     }
 
     @objc private func deleteLearnedData() {
         do {
             try settings.deleteLearnedData()
+            TraceLogger.shared.warn("learned_data_deleted")
         } catch {
+            TraceLogger.shared.error("learned_data_delete_failed", fields: ["error": error.localizedDescription])
             showPermissionAlert(title: "Delete Failed", message: error.localizedDescription)
         }
     }
 
     @objc private func restartSidecar() {
+        TraceLogger.shared.info("menu_restart_sidecar")
         coordinator.restartSidecar()
     }
 
     @objc private func quit() {
+        TraceLogger.shared.info("menu_quit")
         NSApp.terminate(nil)
     }
 

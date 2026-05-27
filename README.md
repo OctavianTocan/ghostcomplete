@@ -32,6 +32,8 @@ bun run try
 
 Grant Accessibility and Input Monitoring permissions when macOS prompts, then type in a supported text field. Tab accepts the ghost suggestion and Esc dismisses it.
 
+If GhostComplete is already running, the installer quits it before replacing `/Applications/GhostComplete.app`. `bun run try` then relaunches the fresh build. `bun run install:local` leaves it stopped after the replacement, so launch it manually when you are ready.
+
 For development:
 
 ```sh
@@ -53,6 +55,7 @@ The sidecar reads:
 - `AI_GATEWAY_API_KEY` for Vercel AI Gateway auth.
 - `GHOSTCOMPLETE_MODEL` for the AI Gateway model string. Default: `openai/gpt-4o-mini`.
 - `GHOSTCOMPLETE_PORT` for development. Production launch uses the bundled Bun sidecar.
+- `GHOSTCOMPLETE_LOG_DIR` to override the default JSONL trace directory.
 
 The Swift app reads the key from Keychain first. Seed it with `scripts/set-api-key`, or run `scripts/install-local` after setting `AI_GATEWAY_API_KEY` in `.env`. If the key is not in Keychain but `AI_GATEWAY_API_KEY` exists in the app environment, the app stores it in Keychain and passes it to the sidecar at launch.
 
@@ -71,10 +74,30 @@ bun run setup          # install sidecar dependencies
 bun run set-key        # store AI_GATEWAY_API_KEY from .env or prompt in Keychain
 bun run try            # install and launch the app
 bun run install:local  # install without launching
+bun run logs           # print JSONL trace file paths
+bun run logs:tail      # follow app and sidecar JSONL traces
 bun run smoke          # smoke-test the local sidecar
 bun run reset-perms    # reset macOS TCC permissions for the app
 bun run reset-data     # reset permissions and delete learned data
 ```
+
+## Logs And Traces
+
+GhostComplete writes structured JSONL traces to:
+
+```text
+~/Library/Application Support/GhostComplete/logs/app.jsonl
+~/Library/Application Support/GhostComplete/logs/sidecar.jsonl
+```
+
+Use:
+
+```sh
+bun run logs
+bun run logs:tail
+```
+
+The trace stream includes app launch, permission checks, sidecar launch, request lifecycle, stale responses, completion latency, insertion strategy, accepted suggestions, validation failures, model timeouts, and sidecar shutdown. Raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields.
 
 ## Testing
 

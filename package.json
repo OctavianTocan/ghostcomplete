@@ -12,6 +12,8 @@
     "build:app": "scripts/build-app",
     "install:local": "scripts/install-local",
     "try": "scripts/install-local --launch",
+    "logs": "scripts/logs",
+    "logs:tail": "scripts/logs tail",
     "typecheck": "bun run --cwd ai-service typecheck",
     "test:sidecar": "bun run --cwd ai-service test",
     "test:mac": "swift test --package-path mac",

@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 
+export function hashText(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
 export function hashContext(context: string): string {
-  return createHash("sha256").update(context, "utf8").digest("hex");
+  return hashText(context);
 }
 
 export function sanitizeContinuation(context: string, raw: string): string {

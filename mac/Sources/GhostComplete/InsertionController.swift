@@ -17,7 +17,16 @@ final class InsertionController {
     private let typeDelay: useconds_t = 5_000
 
     func insert(_ text: String, into app: AppContext, settings: SettingsStore) {
-        switch InsertionStrategySelector.strategy(for: app.bundleId, fallbackBundleIds: settings.pasteboardFallbackBundleIds) {
+        let strategy = InsertionStrategySelector.strategy(for: app.bundleId, fallbackBundleIds: settings.pasteboardFallbackBundleIds)
+        TraceLogger.shared.info("insertion_started", fields: [
+            "appBundleId": app.bundleId,
+            "appName": app.name,
+            "strategy": String(describing: strategy),
+            "textLength": text.count,
+            "textHash": text.ghostCompleteSHA256
+        ])
+
+        switch strategy {
         case .syntheticUnicode:
             typeUnicode(text)
         case .pasteboardFallback:
@@ -27,10 +36,12 @@ final class InsertionController {
 
     private func typeUnicode(_ text: String) {
         guard let source = CGEventSource(stateID: .hidSystemState) else {
+            TraceLogger.shared.warn("insertion_synthetic_source_unavailable")
             paste(text)
             return
         }
 
+        TraceLogger.shared.debug("insertion_synthetic_typing", fields: ["scalarCount": text.unicodeScalars.count])
         for scalar in text.unicodeScalars {
             var value = UniChar(scalar.value)
             let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
@@ -49,8 +60,13 @@ final class InsertionController {
         let previous = pasteboard.string(forType: .string)
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        TraceLogger.shared.debug("insertion_pasteboard_prepared", fields: [
+            "textLength": text.count,
+            "hadPreviousString": previous != nil
+        ])
 
         guard let source = CGEventSource(stateID: .hidSystemState) else {
+            TraceLogger.shared.error("insertion_paste_source_unavailable")
             Self.restorePasteboard(previous)
             return
         }
@@ -66,6 +82,7 @@ final class InsertionController {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [previous] in
             Self.restorePasteboard(previous)
+            TraceLogger.shared.debug("pasteboard_restored", fields: ["hadPreviousString": previous != nil])
         }
     }
 

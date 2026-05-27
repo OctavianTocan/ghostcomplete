@@ -7,6 +7,9 @@ All notable changes to GhostComplete will be documented in this file.
 - Added native macOS menu-bar app with Accessibility focus tracking, global Tab/Esc handling, ghost text overlay, and synthetic insertion with pasteboard fallback.
 - Added local Bun/TypeScript AI sidecar using Vercel AI SDK and Vercel AI Gateway.
 - Added localhost-only authenticated `/complete`, `/learn`, and `/health` sidecar endpoints.
+- Added structured JSONL tracing for the macOS app and Bun sidecar under `~/Library/Application Support/GhostComplete/logs`.
+- Added installer handling for running app updates: local install now quits GhostComplete before replacing `/Applications/GhostComplete.app`, and `bun run try` relaunches the fresh build.
+- Added `bun run logs` and `bun run logs:tail` for quick local diagnostics.
 - Added local privacy-first learning store with SQLite, accepted/curated examples, profile JSON, and no default raw typing persistence.
 - Added Bun build/test/dev scripts, local installer, permission reset helper, Keychain API key seeding, and sidecar smoke test.
 - Added root-level Bun scripts for one-command local install, launch, smoke testing, and reset workflows.

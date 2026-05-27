@@ -4,6 +4,8 @@ final class SettingsStore {
     let appSupportURL: URL
     let profileURL: URL
     let databaseURL: URL
+    let logsURL: URL
+    let appLogURL: URL
 
     var denylistedBundleIds: Set<String> = [
         "com.apple.keychainaccess",
@@ -26,10 +28,13 @@ final class SettingsStore {
         appSupportURL = base
         profileURL = base.appendingPathComponent("profile.json")
         databaseURL = base.appendingPathComponent("learning.sqlite")
+        logsURL = base.appendingPathComponent("logs", isDirectory: true)
+        appLogURL = logsURL.appendingPathComponent("app.jsonl")
     }
 
     func ensureApplicationSupport() throws {
         try FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: profileURL.path) {
             try writeDefaultProfile()
         }

@@ -4,6 +4,8 @@ ai-service/dist/
 ai-service/coverage/
 mac/.build/
 build/
+.serena/
+.mypy_cache/
 
 .env
 .env.*

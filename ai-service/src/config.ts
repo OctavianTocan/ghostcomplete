@@ -5,6 +5,8 @@ export interface ServiceConfig {
   appSupportDir: string;
   databasePath: string;
   profilePath: string;
+  logDir: string;
+  sidecarLogPath: string;
   model: string;
   token: string;
   host: string;
@@ -33,11 +35,14 @@ export function loadConfig(): ServiceConfig {
   const appSupportDir =
     process.env.GHOSTCOMPLETE_APP_SUPPORT ??
     path.join(os.homedir(), "Library", "Application Support", "GhostComplete");
+  const logDir = process.env.GHOSTCOMPLETE_LOG_DIR ?? path.join(appSupportDir, "logs");
 
   return {
     appSupportDir,
     databasePath: process.env.GHOSTCOMPLETE_DB ?? path.join(appSupportDir, "learning.sqlite"),
     profilePath: process.env.GHOSTCOMPLETE_PROFILE ?? path.join(appSupportDir, "profile.json"),
+    logDir,
+    sidecarLogPath: path.join(logDir, "sidecar.jsonl"),
     model: process.env.GHOSTCOMPLETE_MODEL ?? "openai/gpt-4o-mini",
     token: process.env.GHOSTCOMPLETE_TOKEN ?? "",
     host: process.env.GHOSTCOMPLETE_HOST ?? "127.0.0.1",

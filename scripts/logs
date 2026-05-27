@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/load-env"
+
+APP_SUPPORT="${GHOSTCOMPLETE_APP_SUPPORT:-$HOME/Library/Application Support/GhostComplete}"
+LOG_DIR="${GHOSTCOMPLETE_LOG_DIR:-$APP_SUPPORT/logs}"
+APP_LOG="$LOG_DIR/app.jsonl"
+SIDECAR_LOG="$LOG_DIR/sidecar.jsonl"
+LINES="${GHOSTCOMPLETE_LOG_LINES:-200}"
+COMMAND="${1:-list}"
+
+ensure_logs() {
+  mkdir -p "$LOG_DIR"
+  touch "$APP_LOG" "$SIDECAR_LOG"
+}
+
+show_file() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    tail -n "$LINES" "$file"
+  else
+    echo "No log file yet: $file" >&2
+  fi
+}
+
+case "$COMMAND" in
+  list)
+    echo "GhostComplete logs:"
+    echo "  app:     $APP_LOG"
+    echo "  sidecar: $SIDECAR_LOG"
+    echo
+    if [[ -d "$LOG_DIR" ]]; then
+      find "$LOG_DIR" -maxdepth 1 -type f -name '*.jsonl' -print
+    else
+      echo "No log directory yet. Launch the app once, or run: bun run logs:tail"
+    fi
+    ;;
+  app)
+    show_file "$APP_LOG"
+    ;;
+  sidecar)
+    show_file "$SIDECAR_LOG"
+    ;;
+  tail)
+    ensure_logs
+    tail -n "$LINES" -f "$APP_LOG" "$SIDECAR_LOG"
+    ;;
+  path)
+    echo "$LOG_DIR"
+    ;;
+  *)
+    echo "Usage: scripts/logs [list|app|sidecar|tail|path]" >&2
+    exit 2
+    ;;
+esac

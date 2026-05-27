@@ -16,6 +16,8 @@ function makeConfig(): ServiceConfig {
     appSupportDir: dir,
     databasePath: path.join(dir, "learning.sqlite"),
     profilePath: path.join(dir, "profile.json"),
+    logDir: path.join(dir, "logs"),
+    sidecarLogPath: path.join(dir, "logs", "sidecar.jsonl"),
     model: "test/model",
     token: "test-token",
     host: "127.0.0.1",
