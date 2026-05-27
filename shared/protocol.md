@@ -37,7 +37,7 @@ Response:
 {
   "requestId": "same-id",
   "completion": " short continuation",
-  "model": "openai/gpt-4o-mini",
+  "model": "openai/gpt-5.4",
   "latencyMs": 420
 }
 ```
@@ -82,6 +82,6 @@ Returns sidecar status without exposing typed text:
 ```json
 {
   "ok": true,
-  "model": "openai/gpt-4o-mini"
+  "model": "openai/gpt-5.4"
 }
 ```

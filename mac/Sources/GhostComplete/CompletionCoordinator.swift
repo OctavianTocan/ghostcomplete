@@ -32,7 +32,8 @@ final class CompletionCoordinator {
         self.sidecar = SidecarClient(settings: settings)
     }
 
-    func startSidecar() {
+    @discardableResult
+    func startSidecar() -> Bool {
         let envKey = ProcessInfo.processInfo.environment["AI_GATEWAY_API_KEY"]
         let keychainKey = keychain.string(account: "AI_GATEWAY_API_KEY")
         let apiKey = keychainKey ?? envKey
@@ -48,9 +49,11 @@ final class CompletionCoordinator {
         do {
             try sidecar.start(apiKey: apiKey)
             TraceLogger.shared.info("sidecar_start_succeeded")
+            return true
         } catch {
             TraceLogger.shared.error("sidecar_start_failed", fields: ["error": error.localizedDescription])
             NSLog("[GhostComplete] Sidecar launch failed: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -59,10 +62,11 @@ final class CompletionCoordinator {
         sidecar.stop()
     }
 
-    func restartSidecar() {
+    @discardableResult
+    func restartSidecar() -> Bool {
         TraceLogger.shared.info("sidecar_restart_requested")
         sidecar.stop()
-        startSidecar()
+        return startSidecar()
     }
 
     func handleKey(_ keyCode: CGKeyCode, flags: CGEventFlags) -> KeyDecision {

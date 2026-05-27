@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import type { CompletionEngine } from "./ai.js";
+import type { CompletionEngine, CompletionResult } from "./ai.js";
 import type { ServiceConfig } from "./config.js";
 import { noopLogger, type TraceLogger } from "./logger.js";
 import { ensureProfile } from "./profile.js";
@@ -103,7 +103,8 @@ export function createServer(
           });
 
           store.recordCompletionRequest(completeRequest.requestId, contextHash, completeRequest.app);
-          const completion = await engine.complete(completeRequest.context, prompt);
+          const result = await engine.complete(completeRequest.context, prompt);
+          const completion = result.completion;
           const latencyMs = Math.round(performance.now() - requestStarted);
 
           logger.info("completion_request_succeeded", {
@@ -112,6 +113,7 @@ export function createServer(
             latencyMs,
             completionLength: completion.length,
             completionHash: hashText(completion),
+            ...completionTraceFields(result),
           });
 
           return json({
@@ -181,4 +183,28 @@ export function createServer(
   });
 
   return server;
+}
+
+function completionTraceFields(result: CompletionResult): Record<string, unknown> {
+  return {
+    streamChunkCount: result.stream.chunkCount,
+    streamFirstChunkLatencyMs: result.stream.firstChunkLatencyMs ?? null,
+    streamLatencyMs: result.stream.streamLatencyMs,
+    rawCompletionLength: result.stream.rawCompletionLength,
+    finishReason: result.finishReason ?? null,
+    usage: result.usage ?? null,
+    totalUsage: result.totalUsage ?? null,
+    warningsCount: result.warnings?.length ?? 0,
+    warnings: result.warnings?.map((warning) => ({
+      type: warning.type,
+      message: "message" in warning ? warning.message : undefined,
+    })) ?? [],
+    response: result.response ? {
+      id: result.response.id,
+      modelId: result.response.modelId,
+      timestamp: result.response.timestamp.toISOString(),
+      headersCount: result.response.headers ? Object.keys(result.response.headers).length : 0,
+    } : null,
+    providerMetadataKeys: result.providerMetadata ? Object.keys(result.providerMetadata) : [],
+  };
 }

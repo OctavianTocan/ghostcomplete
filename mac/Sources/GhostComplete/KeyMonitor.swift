@@ -14,12 +14,20 @@ final class KeyMonitor {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
+    var isRunning: Bool {
+        eventTap != nil
+    }
+
     init(handler: @escaping Handler) {
         self.handler = handler
     }
 
     func start() -> Bool {
         precondition(Thread.isMainThread, "KeyMonitor must be installed on the main run loop.")
+        if eventTap != nil {
+            return true
+        }
+
         let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,

@@ -7,11 +7,9 @@ GhostComplete watches the focused editable field through macOS Accessibility, as
 The app is split intentionally:
 
 - `mac/` owns macOS permissions, focus tracking, overlay rendering, Tab/Esc handling, and insertion.
-- `ai-service/` owns Vercel AI SDK calls, prompt construction, local learning, and provider config. It runs on Bun and builds to a bundled sidecar executable for the app.
+- `ai-service/` owns Vercel AI SDK streaming calls, prompt construction, local learning, Gateway verification, and provider config. It runs on Bun and builds to a bundled sidecar executable for the app.
 - `shared/` documents the localhost protocol used between the two processes.
 - `scripts/` contains local development, build, install, permissions, and smoke-test helpers.
-
-The original Python prototype remains in `ghostcomplete.py` as reference material.
 
 ## Requirements
 
@@ -23,8 +21,8 @@ The original Python prototype remains in `ghostcomplete.py` as reference materia
 ## Quick Start
 
 ```sh
-cp .env.example .env
-# edit .env and set AI_GATEWAY_API_KEY
+cp .env.example .env.local
+# edit .env.local and set AI_GATEWAY_API_KEY
 bun run try
 ```
 
@@ -48,16 +46,26 @@ Runtime files live in:
 ~/Library/Application Support/GhostComplete
 ```
 
-Scripts source environment variables from `.env` automatically. `.env` is gitignored; use `.env.example` as the template.
+Scripts source environment variables from `.env` and `.env.local` automatically, with `.env.local` taking precedence. Both files are gitignored; use `.env.example` as the template.
 
 The sidecar reads:
 
 - `AI_GATEWAY_API_KEY` for Vercel AI Gateway auth.
-- `GHOSTCOMPLETE_MODEL` for the AI Gateway model string. Default: `openai/gpt-4o-mini`.
+- `GHOSTCOMPLETE_MODEL` for the AI Gateway model string. Default: `openai/gpt-5.4`.
 - `GHOSTCOMPLETE_PORT` for development. Production launch uses the bundled Bun sidecar.
 - `GHOSTCOMPLETE_LOG_DIR` to override the default JSONL trace directory.
 
-The Swift app reads the key from Keychain first. Seed it with `scripts/set-api-key`, or run `scripts/install-local` after setting `AI_GATEWAY_API_KEY` in `.env`. If the key is not in Keychain but `AI_GATEWAY_API_KEY` exists in the app environment, the app stores it in Keychain and passes it to the sidecar at launch.
+The Swift app reads the key from Keychain first. Seed it with `scripts/set-api-key`, or run `scripts/install-local` after setting `AI_GATEWAY_API_KEY` in `.env.local`. If the key is not in Keychain but `AI_GATEWAY_API_KEY` exists in the app environment, the app stores it in Keychain and passes it to the sidecar at launch.
+
+## AI Gateway
+
+The sidecar uses Vercel AI SDK `streamText` through AI Gateway and then returns the final continuation to the Swift app over the local JSON protocol. Stream traces include chunk count, first-token latency, stream latency, finish reason, provider response metadata, warnings, and token usage.
+
+To verify Gateway independently:
+
+```sh
+bun run gateway:check
+```
 
 ## Build And Install
 
@@ -74,6 +82,7 @@ bun run setup          # install sidecar dependencies
 bun run set-key        # store AI_GATEWAY_API_KEY from .env or prompt in Keychain
 bun run try            # install and launch the app
 bun run install:local  # install without launching
+bun run gateway:check  # run a Vercel AI Gateway streamText check with tsx
 bun run logs           # print JSONL trace file paths
 bun run logs:tail      # follow app and sidecar JSONL traces
 bun run smoke          # smoke-test the local sidecar
@@ -97,7 +106,11 @@ bun run logs
 bun run logs:tail
 ```
 
-The trace stream includes app launch, permission checks, sidecar launch, request lifecycle, stale responses, completion latency, insertion strategy, accepted suggestions, validation failures, model timeouts, and sidecar shutdown. Raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields.
+The trace stream includes app launch, permission checks, sidecar launch, request lifecycle, stale responses, stream chunk counts, first-token latency, completion latency, AI SDK token usage, finish reasons, response metadata, insertion strategy, accepted suggestions, validation failures, model timeouts, and sidecar shutdown. Raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields.
+
+## Permissions
+
+GhostComplete shows a small status window on launch with Accessibility, Input Monitoring, and sidecar state. If Input Monitoring is enabled but the app still reports `Needs access`, remove GhostComplete from System Settings and add `/Applications/GhostComplete.app` again. The app retries the keyboard event tap while the status window is open, so a full restart is not usually needed after granting permission.
 
 ## Testing
 

@@ -3,7 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
 import { FakeCompletionEngine } from "../src/ai.js";
+import type { CompletionEngine } from "../src/ai.js";
 import type { ServiceConfig } from "../src/config.js";
+import type { TraceLogger } from "../src/logger.js";
 import { createServer } from "../src/server.js";
 import { LearningStore } from "../src/storage.js";
 
@@ -70,6 +72,68 @@ describe("sidecar server", () => {
     try {
       const response = await fetch(`http://127.0.0.1:${server.port}/complete`, { method: "POST" });
       expect(response.status).toBe(401);
+    } finally {
+      server.stop();
+      store.close();
+    }
+  });
+
+  it("logs AI SDK stream metadata and token usage", async () => {
+    const config = makeConfig();
+    const store = new LearningStore(config.databasePath);
+    const events: Array<{ event: string; fields: Record<string, unknown> }> = [];
+    const logger: TraceLogger = {
+      debug: (event, fields = {}) => events.push({ event, fields }),
+      info: (event, fields = {}) => events.push({ event, fields }),
+      warn: (event, fields = {}) => events.push({ event, fields }),
+      error: (event, fields = {}) => events.push({ event, fields }),
+    };
+    const engine: CompletionEngine = {
+      complete: async () => ({
+        completion: " done",
+        usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+        totalUsage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+        finishReason: "stop",
+        response: {
+          id: "response-1",
+          timestamp: new Date("2026-05-27T00:00:00.000Z"),
+          modelId: "test/model",
+        },
+        stream: {
+          chunkCount: 2,
+          firstChunkLatencyMs: 12,
+          streamLatencyMs: 20,
+          rawCompletionLength: 5,
+        },
+      }),
+    };
+    const server = createServer(config, engine, store, logger);
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/complete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer test-token",
+        },
+        body: JSON.stringify({
+          requestId: "usage-test",
+          context: "Nearly",
+          app: { bundleId: "com.apple.TextEdit", name: "TextEdit" },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      const event = events.find((entry) => entry.event === "completion_request_succeeded");
+      expect(event?.fields).toMatchObject({
+        requestId: "usage-test",
+        streamChunkCount: 2,
+        streamFirstChunkLatencyMs: 12,
+        streamLatencyMs: 20,
+        finishReason: "stop",
+        usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+        totalUsage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+      });
     } finally {
       server.stop();
       store.close();

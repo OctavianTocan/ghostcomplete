@@ -24,7 +24,11 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>GhostComplete uses macOS accessibility and input monitoring APIs to show and accept inline autocomplete suggestions.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>GhostComplete uses macOS accessibility and input monitoring APIs to show and accept inline autocomplete suggestions.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>GhostComplete reads focused editable text fields to show inline autocomplete suggestions.</string>
+    <key>NSInputMonitoringUsageDescription</key>
+    <string>GhostComplete watches Tab and Esc globally so you can accept or dismiss suggestions.</string>
 </dict>
 </plist>
