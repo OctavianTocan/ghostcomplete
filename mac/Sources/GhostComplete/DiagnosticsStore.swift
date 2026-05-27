@@ -271,6 +271,7 @@ final class DiagnosticsStore {
         case "permission_snapshot_updated": return "Permission state updated"
         case "completion_request_started", "completion_request_received": return "Completion requested"
         case "completion_request_succeeded": return "Completion succeeded"
+        case "completion_response_text": return "Completion text"
         case "completion_response_shown": return "Ghost text shown"
         case "completion_request_failed", "request_failed", "sidecar_post_bad_response": return "Completion failed"
         case "completion_request_soft_empty": return "Completion returned empty"
@@ -282,7 +283,7 @@ final class DiagnosticsStore {
         case "overlay_shown": return "Overlay positioned"
         case "suggestion_accepted": return "Suggestion accepted"
         case "learn_event_recorded": return "Learning event saved"
-        case "preferences_saved": return "Settings saved"
+        case "preferences_saved", "runtime_settings_saved", "sidecar_runtime_settings_saved": return "Settings saved"
         default: return event.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -304,8 +305,12 @@ final class DiagnosticsStore {
             return join([
                 "app \(string(fields["appName"]))",
                 "\(intString(fields["contextLength"])) chars",
-                "anchor \(string(fields["anchorSource"]))"
+                "anchor \(string(fields["anchorSource"]))",
+                quoted("context", fields["context"]),
+                quoted("prompt", fields["promptUser"])
             ])
+        case "completion_response_text":
+            return join([quoted("completion", fields["completion"])])
         case "completion_request_succeeded":
             return join([
                 "model \(string(fields["model"]))",
@@ -341,7 +346,7 @@ final class DiagnosticsStore {
     }
 
     private func compactFallback(_ fields: [String: Any]) -> String {
-        let preferred = ["appName", "model", "provider", "path", "status", "latencyMs", "reason", "label"]
+        let preferred = ["appName", "model", "provider", "path", "status", "latencyMs", "reason", "label", "context", "completion"]
         return join(preferred.map { key in
             guard let value = fields[key] else {
                 return ""
@@ -355,6 +360,17 @@ final class DiagnosticsStore {
             return ""
         }
         return "tokens \(intString(usage["totalTokens"]))"
+    }
+
+    private func quoted(_ label: String, _ value: Any?, limit: Int = 500) -> String {
+        let text = string(value)
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        guard !text.isEmpty else {
+            return ""
+        }
+        let clipped = text.count > limit ? "\(text.prefix(limit))..." : text
+        return "\(label): \"\(clipped)\""
     }
 
     private func string(_ value: Any?) -> String {

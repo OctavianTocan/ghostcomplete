@@ -2,54 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT/scripts/lib/load-env"
-TOKEN="smoke-token"
-PORT="50574"
-TMP_DIR="$(mktemp -d)"
-SIDECAR_PATH="${GHOSTCOMPLETE_SIDECAR_PATH:-$ROOT/ai-service/dist/index.js}"
 
-if [[ -z "${GHOSTCOMPLETE_SIDECAR_PATH:-}" ]]; then
-  bun run --cwd "$ROOT/ai-service" build
-fi
+bun run --cwd "$ROOT/ai-service" build
+"$ROOT/scripts/gcx" verify completions --fake --plain
 
-if [[ -x "$SIDECAR_PATH" && "$SIDECAR_PATH" != *.js ]]; then
-  SIDECAR_CMD=("$SIDECAR_PATH")
-else
-  SIDECAR_CMD=(bun "$SIDECAR_PATH")
-fi
-
-GHOSTCOMPLETE_TOKEN="$TOKEN" \
-GHOSTCOMPLETE_PORT="$PORT" \
-GHOSTCOMPLETE_APP_SUPPORT="$TMP_DIR" \
-GHOSTCOMPLETE_FAKE_COMPLETION=" ship it" \
-"${SIDECAR_CMD[@]}" > "$TMP_DIR/sidecar.log" 2>&1 &
-PID="$!"
-
-cleanup() {
-  kill "$PID" >/dev/null 2>&1 || true
-  rm -rf "$TMP_DIR"
-}
-trap cleanup EXIT
-
-for _ in {1..30}; do
-  if grep -q '"event":"ready"' "$TMP_DIR/sidecar.log"; then
-    READY=1
-    break
-  fi
-  sleep 0.1
-done
-
-if [[ "${READY:-0}" != "1" ]]; then
-  cat "$TMP_DIR/sidecar.log" >&2
-  exit 1
-fi
-
-curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null
-curl -fsS \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"requestId":"smoke","context":"We should","app":{"bundleId":"com.apple.TextEdit","name":"TextEdit"}}' \
-  "http://127.0.0.1:$PORT/complete"
-
-echo
 echo "Sidecar smoke test passed."

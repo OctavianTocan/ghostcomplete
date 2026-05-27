@@ -2,13 +2,13 @@ import XCTest
 @testable import GhostComplete
 
 final class CoordinateConverterTests: XCTestCase {
-    func testOverlayOriginUsesCaretEnd() {
+    func testOverlayOriginUsesCaretStart() {
         let origin = CoordinateConverter.overlayOrigin(
             caretRect: CGRect(x: 20, y: 30, width: 2, height: 18),
             fallbackElementRect: nil,
             panelHeight: 24
         )
-        XCTAssertEqual(origin, CGPoint(x: 23, y: 27))
+        XCTAssertEqual(origin, CGPoint(x: 20, y: 27))
     }
 
     func testOverlayOriginFallsBackToElement() {

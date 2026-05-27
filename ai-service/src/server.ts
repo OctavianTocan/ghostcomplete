@@ -97,6 +97,12 @@ export function createServer(
             appName: completeRequest.app.name,
             contextLength: completeRequest.context.length,
             contextHash,
+            ...(config.rawTextLogging ? {
+              context: completeRequest.context,
+              contextSuffix: completeRequest.context.slice(-500),
+              promptSystem: prompt.system,
+              promptUser: prompt.prompt,
+            } : {}),
             hasSelection: completeRequest.selection !== undefined,
             selectionLocation: completeRequest.selection?.location ?? null,
             selectionLength: completeRequest.selection?.length ?? null,
@@ -123,6 +129,7 @@ export function createServer(
             latencyMs,
             completionLength: completion.length,
             completionHash: hashText(completion),
+            ...(config.rawTextLogging ? { completion } : {}),
             ...completionTraceFields(result),
           });
 

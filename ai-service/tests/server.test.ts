@@ -36,6 +36,7 @@ async function makeConfig(): Promise<ServiceConfig> {
     profilePath: path.join(dir, "profile.json"),
     logDir: path.join(dir, "logs"),
     sidecarLogPath: path.join(dir, "logs", "sidecar.jsonl"),
+    provider: "gateway",
     model: "test/model",
     token: "test-token",
     host: "127.0.0.1",
@@ -43,6 +44,7 @@ async function makeConfig(): Promise<ServiceConfig> {
     timeoutMs: 1000,
     maxOutputTokens: 24,
     temperature: 0.1,
+    rawTextLogging: false,
   };
 }
 

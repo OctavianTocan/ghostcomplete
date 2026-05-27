@@ -85,7 +85,8 @@ final class SidecarClient {
         environment["GHOSTCOMPLETE_LOG_DIR"] = settings.logsURL.path
         environment["GHOSTCOMPLETE_PORT"] = String(sidecarPort)
         let runtimeSettings = SidecarRuntimeSettings.load(from: settings.sidecarSettingsURL)
-        runtimeSettings?.apply(to: &environment)
+        runtimeSettings?.apply(to: &environment, overridingExisting: true)
+        environment["GHOSTCOMPLETE_LOG_RAW_TEXT"] = settings.loadPreferences().rawTextLoggingEnabled ? "1" : "0"
         if let gatewayKey = apiKeys.gateway, !gatewayKey.isEmpty {
             environment[KeychainStore.gatewayAccount] = gatewayKey
         }

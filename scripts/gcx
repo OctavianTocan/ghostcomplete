@@ -1,0 +1,489 @@
+#!/usr/bin/env bun
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, chmodSync, mkdtempSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import net from "node:net";
+
+const ROOT = resolve(import.meta.dir, "..");
+const APP_SUPPORT = join(homedir(), "Library", "Application Support", "GhostComplete");
+const SIDECAR_SETTINGS = join(APP_SUPPORT, "sidecar-settings.json");
+const PREFERENCES = join(APP_SUPPORT, "preferences.json");
+const INSTALLED_APP = "/Applications/GhostComplete.app";
+const SIDECAR_EXECUTABLE = join(ROOT, "ai-service", "dist", "ghostcomplete-sidecar");
+const DEFAULT_PORT = 50573;
+
+const EXIT = {
+  local: 1,
+  usage: 2,
+  backend: 4,
+  api: 5,
+  verify: 6,
+};
+
+function parseGlobal(argv) {
+  const args = [];
+  let output = "human";
+  let verbose = false;
+  for (const arg of argv) {
+    if (arg === "--json") output = "json";
+    else if (arg === "--plain") output = "plain";
+    else if (arg === "--verbose") verbose = true;
+    else args.push(arg);
+  }
+  return { args, output, verbose };
+}
+
+const parsed = parseGlobal(Bun.argv.slice(2));
+main(parsed).catch((error) => fail(error.message || String(error), numericExitCode(error.code)));
+
+async function main({ args, output }) {
+  const [resource, verb, ...rest] = args;
+  if (!resource || resource === "-h" || resource === "--help" || resource === "help") {
+    printHelp();
+    return;
+  }
+
+  if (resource === "doctor") {
+    return printDoctor(await doctor(), output);
+  }
+  if (resource === "settings") {
+    return settingsCommand(verb, rest, output);
+  }
+  if (resource === "api") {
+    return apiCommand(verb, rest, output);
+  }
+  if (resource === "verify") {
+    return verifyCommand(verb, rest, output);
+  }
+
+  fail(`Unknown resource: ${resource}`, EXIT.usage, "Run `bun run gcx -- --help`.");
+}
+
+function printHelp() {
+  const text = `gcx - GhostComplete end-to-end verifier
+
+Usage:
+  bun run gcx -- doctor [--json|--plain]
+  bun run gcx -- settings show [--json|--plain]
+  bun run gcx -- settings set provider <openrouter|gateway>
+  bun run gcx -- settings set model <model-id>
+  bun run gcx -- settings set raw-logs <on|off>
+  bun run gcx -- api METHOD PATH [-d JSON] [--port N] [--token TOKEN]
+  bun run gcx -- verify completions [--fake|--live] [--text TEXT] [--json]
+
+Exit codes:
+  0 success
+  1 local/config error
+  2 usage error
+  4 backend unreachable
+  5 API/provider error
+  6 verification failed
+`;
+  process.stdout.write(text);
+}
+
+async function doctor() {
+  const env = loadDotEnv();
+  const sidecarSettings = readJson(SIDECAR_SETTINGS);
+  const preferences = readJson(PREFERENCES);
+  const provider = sidecarSettings.value?.provider || env.GHOSTCOMPLETE_PROVIDER || (env.OPENROUTER_API_KEY ? "openrouter" : "gateway");
+  const model = sidecarSettings.value?.model || env.GHOSTCOMPLETE_MODEL || "";
+  const port = Number(env.GHOSTCOMPLETE_PORT || sidecarSettings.value?.port || DEFAULT_PORT);
+  const health = await getHealth(port);
+
+  const checks = [
+    check("app_support_exists", existsSync(APP_SUPPORT), APP_SUPPORT),
+    check("sidecar_settings_parse", sidecarSettings.ok, sidecarSettings.detail),
+    check("preferences_parse", preferences.ok, preferences.detail),
+    check("installed_app_exists", existsSync(INSTALLED_APP), INSTALLED_APP),
+    check("sidecar_health", health.ok, health.detail),
+    check(
+      "openrouter_selected_when_key_present",
+      !env.OPENROUTER_API_KEY || provider === "openrouter",
+      `provider=${provider || "<unset>"} openrouter_key=${env.OPENROUTER_API_KEY ? "present" : "missing"}`,
+    ),
+    check(
+      "openrouter_model_not_gateway_slug",
+      provider !== "openrouter" || model !== "google/gemini-2.0-flash-lite",
+      `provider=${provider || "<unset>"} model=${model || "<unset>"}`,
+    ),
+  ];
+
+  return {
+    name: "doctor",
+    passed: checks.every((item) => item.passed),
+    checks,
+    artifacts: {
+      appSupport: APP_SUPPORT,
+      sidecarSettingsPath: SIDECAR_SETTINGS,
+      preferencesPath: PREFERENCES,
+      installedApp: INSTALLED_APP,
+      provider,
+      model,
+      port,
+      rawTextLogging: Boolean(preferences.value?.rawTextLoggingEnabled),
+      health: health.payload ?? null,
+    },
+  };
+}
+
+function printDoctor(result, output) {
+  printScenario(result, output);
+  if (!result.passed) process.exit(EXIT.verify);
+}
+
+function settingsCommand(verb, rest, output) {
+  if (verb === "show" || verb === "ls" || verb === "list") {
+    const env = loadDotEnv();
+    const sidecarSettings = readJson(SIDECAR_SETTINGS).value ?? {};
+    const preferences = readJson(PREFERENCES).value ?? {};
+    const payload = {
+      sidecarSettingsPath: SIDECAR_SETTINGS,
+      preferencesPath: PREFERENCES,
+      provider: sidecarSettings.provider || env.GHOSTCOMPLETE_PROVIDER || "",
+      model: sidecarSettings.model || env.GHOSTCOMPLETE_MODEL || "",
+      rawTextLogging: Boolean(preferences.rawTextLoggingEnabled),
+      debounceMs: preferences.debounceMs ?? null,
+      overlayNudgeX: preferences.overlayNudgeX ?? null,
+      overlayNudgeY: preferences.overlayNudgeY ?? null,
+    };
+    return printData(payload, output);
+  }
+
+  if (verb !== "set") {
+    fail("Usage: gcx settings show | settings set <provider|model|raw-logs> <value>", EXIT.usage);
+  }
+  const [key, ...valueParts] = rest;
+  const value = valueParts.join(" ").trim();
+  if (!key || !value) fail("Usage: gcx settings set <provider|model|raw-logs> <value>", EXIT.usage);
+
+  if (key === "provider") {
+    const provider = normalizeProvider(value);
+    const settings = readJson(SIDECAR_SETTINGS).value ?? {};
+    settings.provider = provider;
+    if (!settings.model || isKnownDefaultModel(settings.model)) settings.model = defaultModel(provider);
+    writeJsonAtomic(SIDECAR_SETTINGS, settings);
+    process.stderr.write(`saved provider=${provider}\n`);
+    return;
+  }
+
+  if (key === "model") {
+    const settings = readJson(SIDECAR_SETTINGS).value ?? {};
+    settings.model = value;
+    writeJsonAtomic(SIDECAR_SETTINGS, settings);
+    process.stderr.write(`saved model=${value}\n`);
+    return;
+  }
+
+  if (key === "raw-logs" || key === "raw-text") {
+    const preferences = readJson(PREFERENCES).value ?? defaultPreferences();
+    preferences.rawTextLoggingEnabled = parseBoolean(value);
+    writeJsonAtomic(PREFERENCES, preferences);
+    process.stderr.write(`saved rawTextLoggingEnabled=${preferences.rawTextLoggingEnabled}\n`);
+    return;
+  }
+
+  fail(`Unknown settings key: ${key}`, EXIT.usage);
+}
+
+async function apiCommand(method, rest, output) {
+  if (!method) fail("Usage: gcx api METHOD PATH [-d JSON] [--port N] [--token TOKEN]", EXIT.usage);
+  const path = rest.shift();
+  if (!path) fail("Usage: gcx api METHOD PATH [-d JSON] [--port N] [--token TOKEN]", EXIT.usage);
+
+  const options = parseOptions(rest);
+  const port = Number(options.port || DEFAULT_PORT);
+  const headers = { "content-type": "application/json" };
+  if (options.token) headers.authorization = `Bearer ${options.token}`;
+  const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+    method: method.toUpperCase(),
+    headers,
+    body: options.data ? JSON.stringify(JSON.parse(options.data)) : undefined,
+  }).catch((error) => fail(`Backend unreachable: ${error.message}`, EXIT.backend));
+  const text = await response.text();
+  const body = text ? parseMaybeJson(text) : null;
+  if (!response.ok) {
+    printData({ status: response.status, body }, output);
+    process.exit(EXIT.api);
+  }
+  printData(body, output);
+}
+
+async function verifyCommand(suite, rest, output) {
+  if (suite !== "completions") {
+    fail("Usage: gcx verify completions [--fake|--live] [--text TEXT]", EXIT.usage);
+  }
+  const result = await verifyCompletions(rest);
+  printScenario(result, output);
+  if (!result.passed) process.exit(EXIT.verify);
+}
+
+async function verifyCompletions(args) {
+  const options = parseOptions(args);
+  const live = Boolean(options.live);
+  const text = options.text || "The provider save path should";
+  const port = await freePort();
+  const token = crypto.randomUUID();
+  const appSupport = mkdtempSync(join(tmpdir(), "ghostcomplete-gcx-"));
+  const logDir = join(appSupport, "logs");
+  mkdirSync(logDir, { recursive: true });
+
+  const env = {
+    ...process.env,
+    ...loadDotEnv(),
+    GHOSTCOMPLETE_TOKEN: token,
+    GHOSTCOMPLETE_PORT: String(port),
+    GHOSTCOMPLETE_APP_SUPPORT: appSupport,
+    GHOSTCOMPLETE_LOG_DIR: logDir,
+    GHOSTCOMPLETE_LOG_RAW_TEXT: "1",
+  };
+  applyRuntimeSettingsToEnv(env);
+  if (!live) {
+    env.GHOSTCOMPLETE_FAKE_COMPLETION = options.completion || " save correctly";
+  }
+
+  const result = {
+    name: "completions",
+    passed: true,
+    checks: [],
+    artifacts: { port, appSupport, live, text },
+  };
+
+  if (!existsSync(SIDECAR_EXECUTABLE)) {
+    add(result, "sidecar_executable_exists", false, `missing ${SIDECAR_EXECUTABLE}; run bun run build:sidecar`);
+    return result;
+  }
+  add(result, "sidecar_executable_exists", true, SIDECAR_EXECUTABLE);
+
+  const child = spawn(SIDECAR_EXECUTABLE, { env, stdio: ["ignore", "pipe", "pipe"] });
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    const health = await waitForHealth(port, 4000);
+    add(result, "sidecar_health", health.ok, health.detail);
+    result.artifacts.health = health.payload ?? null;
+
+    const started = performance.now();
+    const response = await fetch(`http://127.0.0.1:${port}/complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        requestId: "gcx-verify",
+        context: text,
+        app: { bundleId: "dev.octavian.GhostComplete.gcx", name: "gcx" },
+        selection: { location: text.length, length: 0 },
+      }),
+    });
+    const body = await response.json().catch(() => null);
+    result.artifacts.response = body;
+    result.artifacts.latencyMs = Math.round(performance.now() - started);
+    add(result, "complete_status_ok", response.ok, `status=${response.status}`);
+    add(result, "complete_returns_completion", Boolean(body?.completion), `completion=${JSON.stringify(body?.completion ?? "")}`);
+    add(result, "complete_model_present", Boolean(body?.model), `model=${body?.model ?? ""}`);
+  } catch (error) {
+    add(result, "verify_runtime", false, error.message || String(error));
+  } finally {
+    child.kill("SIGTERM");
+    result.artifacts.stderr = stderr.trim();
+  }
+
+  return result;
+}
+
+function add(result, name, passed, detail = "") {
+  result.checks.push(check(name, passed, detail));
+  if (!passed) result.passed = false;
+}
+
+function check(name, passed, detail = "") {
+  return { name, passed: Boolean(passed), detail: String(detail ?? "") };
+}
+
+function printScenario(result, output) {
+  if (output === "json") {
+    printData(result, output);
+    return;
+  }
+  if (output === "plain") {
+    for (const item of result.checks) {
+      process.stdout.write(`${item.name}\t${item.passed ? "pass" : "fail"}\t${item.detail}\n`);
+    }
+    return;
+  }
+  for (const item of result.checks) {
+    process.stdout.write(`${item.passed ? "pass" : "fail"}  ${item.name}${item.detail ? ` - ${item.detail}` : ""}\n`);
+  }
+}
+
+function printData(value, output) {
+  if (output === "plain") {
+    if (Array.isArray(value)) {
+      for (const item of value) process.stdout.write(Object.values(item).join("\t") + "\n");
+    } else if (value && typeof value === "object") {
+      for (const [key, val] of Object.entries(value)) process.stdout.write(`${key}\t${String(val)}\n`);
+    } else if (value !== undefined && value !== null) {
+      process.stdout.write(String(value) + "\n");
+    }
+    return;
+  }
+  if (output === "json") {
+    process.stdout.write(JSON.stringify(value, null, 2) + "\n");
+    return;
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const width = Math.max(...Object.keys(value).map((key) => key.length), 1);
+    for (const [key, val] of Object.entries(value)) {
+      process.stdout.write(`${key.padEnd(width)}  ${JSON.stringify(val)}\n`);
+    }
+    return;
+  }
+  process.stdout.write(String(value ?? "") + "\n");
+}
+
+function parseOptions(args) {
+  const options = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "-d" || arg === "--data") options.data = args[++index];
+    else if (arg === "--port") options.port = args[++index];
+    else if (arg === "--token") options.token = args[++index];
+    else if (arg === "--text") options.text = args[++index];
+    else if (arg === "--completion") options.completion = args[++index];
+    else if (arg === "--fake") options.fake = true;
+    else if (arg === "--live") options.live = true;
+    else fail(`Unknown option: ${arg}`, EXIT.usage);
+  }
+  return options;
+}
+
+function normalizeProvider(value) {
+  const raw = value.trim().toLowerCase();
+  if (raw === "openrouter" || raw === "open-router") return "openrouter";
+  if (raw === "gateway" || raw === "vercel" || raw === "ai-gateway") return "gateway";
+  fail("Provider must be openrouter or gateway.", EXIT.usage);
+}
+
+function defaultModel(provider) {
+  return provider === "openrouter" ? "google/gemini-2.0-flash-lite-001" : "google/gemini-2.0-flash-lite";
+}
+
+function isKnownDefaultModel(model) {
+  return ["google/gemini-2.0-flash-lite", "google/gemini-2.0-flash-lite-001"].includes(model);
+}
+
+function parseBoolean(value) {
+  const raw = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  fail("Boolean value must be on or off.", EXIT.usage);
+}
+
+function readJson(path) {
+  if (!existsSync(path)) return { ok: false, detail: `missing ${path}`, value: null };
+  try {
+    return { ok: true, detail: path, value: JSON.parse(readFileSync(path, "utf8")) };
+  } catch (error) {
+    return { ok: false, detail: `${path}: ${error.message}`, value: null };
+  }
+}
+
+function writeJsonAtomic(path, value) {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
+  renameSync(tmp, path);
+  chmodSync(path, 0o600);
+}
+
+function defaultPreferences() {
+  return {
+    debounceMs: 120,
+    revealAnimationEnabled: true,
+    revealStepMs: 18,
+    overlayNudgeX: 0,
+    overlayNudgeY: 0,
+    rawTextLoggingEnabled: false,
+  };
+}
+
+function loadDotEnv() {
+  const env = {};
+  for (const file of [join(ROOT, ".env"), join(ROOT, ".env.local")]) {
+    if (!existsSync(file)) continue;
+    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const index = trimmed.indexOf("=");
+      if (index === -1) continue;
+      const key = trimmed.slice(0, index).trim();
+      const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, "");
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
+function applyRuntimeSettingsToEnv(env) {
+  const settings = readJson(SIDECAR_SETTINGS).value ?? {};
+  if (settings.provider) env.GHOSTCOMPLETE_PROVIDER = settings.provider;
+  if (settings.model) env.GHOSTCOMPLETE_MODEL = settings.model;
+  if (settings.timeoutMs) env.GHOSTCOMPLETE_TIMEOUT_MS = String(settings.timeoutMs);
+  if (settings.maxOutputTokens) env.GHOSTCOMPLETE_MAX_OUTPUT_TOKENS = String(settings.maxOutputTokens);
+  if (settings.temperature !== undefined && settings.temperature !== null) {
+    env.GHOSTCOMPLETE_TEMPERATURE = String(settings.temperature);
+  }
+}
+
+async function getHealth(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(800) });
+    const payload = await response.json().catch(() => null);
+    return { ok: response.ok, detail: response.ok ? `provider=${payload?.provider ?? ""} model=${payload?.model ?? ""}` : `status=${response.status}`, payload };
+  } catch (error) {
+    return { ok: false, detail: error.message || String(error), payload: null };
+  }
+}
+
+async function waitForHealth(port, timeoutMs) {
+  const started = performance.now();
+  let latest = { ok: false, detail: "not checked", payload: null };
+  while (performance.now() - started < timeoutMs) {
+    latest = await getHealth(port);
+    if (latest.ok) return latest;
+    await Bun.sleep(100);
+  }
+  return latest;
+}
+
+async function freePort() {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() => resolve(address.port));
+    });
+  });
+}
+
+function parseMaybeJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function fail(message, code = EXIT.local, hint) {
+  process.stderr.write(`error: ${message}\n`);
+  if (hint) process.stderr.write(`hint: ${hint}\n`);
+  process.exit(code);
+}
+
+function numericExitCode(code) {
+  return typeof code === "number" ? code : EXIT.local;
+}

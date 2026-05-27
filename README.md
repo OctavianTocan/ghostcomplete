@@ -53,7 +53,7 @@ The sidecar reads:
 - `GHOSTCOMPLETE_PROVIDER` to choose `openrouter` or `gateway`. If unset, GhostComplete uses OpenRouter when `OPENROUTER_API_KEY` is present, otherwise Gateway.
 - `OPENROUTER_API_KEY` for OpenRouter auth.
 - `AI_GATEWAY_API_KEY` for Vercel AI Gateway auth.
-- `GHOSTCOMPLETE_MODEL` for the selected provider's model string. Default: `google/gemini-2.0-flash-lite`.
+- `GHOSTCOMPLETE_MODEL` for the selected provider's model string. Default: `google/gemini-2.0-flash-lite-001` for OpenRouter, `google/gemini-2.0-flash-lite` for AI Gateway.
 - `GHOSTCOMPLETE_TIMEOUT_MS` for the autocomplete model timeout. Default: `4000`.
 - `GHOSTCOMPLETE_PORT` for development. Production launch uses the bundled Bun sidecar.
 - `GHOSTCOMPLETE_LOG_DIR` to override the default JSONL trace directory.
@@ -68,7 +68,7 @@ Autocomplete UI preferences live in:
 ~/Library/Application Support/GhostComplete/preferences.json
 ```
 
-You can tune provider, model, debounce timing, ghost text reveal animation, reveal speed, and overlay X/Y nudges from the menu bar item under `Show Status, Logs, and Settings`. Saving the provider or model restarts only the local sidecar, not the whole app.
+You can tune provider, model, debounce timing, ghost text reveal animation, reveal speed, overlay X/Y nudges, and raw diagnostic logging from the menu bar item under `Show Status, Logs, and Settings`. Saving the provider or model restarts only the local sidecar, not the whole app. Saved provider/model settings intentionally win over `.env.local` on app launch, so an old shell `GHOSTCOMPLETE_MODEL` cannot silently undo the model you saved in the UI.
 
 ## AI Providers
 
@@ -82,7 +82,7 @@ Timeouts and cancellations are soft failures: the sidecar returns an empty compl
 
 Overlay anchoring is driven by Accessibility caret bounds. For browser, Electron, and terminal-style fields, GhostComplete derives the caret from the previous character's bounds when zero-length caret bounds are unreliable. If the app does not expose usable caret bounds, GhostComplete estimates the caret within the focused element before falling back to the element bounds. Overlay traces record the anchor source and unclamped/clamped coordinates so bad placement can be diagnosed without logging raw typed text.
 
-OpenRouter is the default local recommendation because Gateway free-tier accounts can rate-limit autocomplete quickly. Set `GHOSTCOMPLETE_PROVIDER=openrouter` and an OpenRouter model such as `google/gemini-2.0-flash-lite`, or change the provider and model from the Settings tab in the status window.
+OpenRouter is the default local recommendation because Gateway free-tier accounts can rate-limit autocomplete quickly. Set `GHOSTCOMPLETE_PROVIDER=openrouter` and an OpenRouter model such as `google/gemini-2.0-flash-lite-001`, or change the provider and model from the Settings tab in the status window. OpenRouter documents this model as `google/gemini-2.0-flash-lite-001`; the shorter Gateway slug `google/gemini-2.0-flash-lite` is not valid there.
 
 `openai/gpt-5.4` works only when your provider account has access to that model. On free-tier Gateway accounts it can fail with a restricted-model error, so the local default uses `google/gemini-2.0-flash-lite`.
 
@@ -131,9 +131,16 @@ Use the menu bar item `Show Status, Logs, and Settings` to browse human-readable
 ```sh
 bun run logs
 bun run logs:tail
+bun run gcx -- doctor
+bun run gcx -- settings show
+bun run gcx -- settings set provider openrouter
+bun run gcx -- settings set model google/gemini-2.0-flash-lite-001
+bun run verify:completions
 ```
 
-The trace stream includes app launch, permission checks, sidecar launch, debounce suppression, duplicate-context suppression, request cancellation, request lifecycle, focus-snapshot skip reasons, stale responses, stream chunk counts, first-token latency, completion latency, AI SDK token usage, finish reasons, response metadata, overlay anchor source and coordinates, insertion strategy, accepted suggestions, validation failures, model access errors, Gateway rate limits, soft model timeouts, and sidecar shutdown. Raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields.
+The `gcx` CLI is the agent-facing verification tool. It can inspect saved settings, call the local sidecar API, and run a disposable fake-completion sidecar without needing to drive the macOS UI.
+
+The trace stream includes app launch, permission checks, sidecar launch, debounce suppression, duplicate-context suppression, request cancellation, request lifecycle, focus-snapshot skip reasons, stale responses, stream chunk counts, first-token latency, completion latency, AI SDK token usage, finish reasons, response metadata, overlay anchor source and coordinates, insertion strategy, accepted suggestions, validation failures, model access errors, Gateway/OpenRouter rate limits, soft model timeouts, and sidecar shutdown. By default, raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields. Turn on `Include typed context and model prompt in local debug logs` in Settings only while debugging, because it writes focused-field text and prompt text to local JSONL.
 
 ## Permissions And Keychain Prompts
 
@@ -152,7 +159,7 @@ bun run smoke
 
 ## Privacy
 
-Raw typing context is sent only to the local sidecar and then to the configured AI model for completion. It is not persisted by GhostComplete. Local learning stores accepted suggestions, user-curated snippets, profile facts, and event metadata. Rejections store hashes and reason codes, not raw text.
+Raw typing context is sent only to the local sidecar and then to the configured AI model for completion. It is not persisted by GhostComplete unless you explicitly enable the raw diagnostic logging checkbox in Settings. Local learning stores accepted suggestions, user-curated snippets, profile facts, and event metadata. Rejections store hashes and reason codes, not raw text.
 
 Use the menu item `Delete Learned Data` or run:
 

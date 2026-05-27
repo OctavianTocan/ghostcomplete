@@ -27,6 +27,7 @@ final class SplashWindowController: NSWindowController {
     private let nudgeXValue = NSTextField(labelWithString: "")
     private let nudgeYSlider = NSSlider(value: Double(AutocompletePreferences.default.overlayNudgeY), minValue: -40, maxValue: 40, target: nil, action: nil)
     private let nudgeYValue = NSTextField(labelWithString: "")
+    private let rawTextLoggingCheckbox = NSButton(checkboxWithTitle: "Include typed context and model prompt in local debug logs", target: nil, action: nil)
 
     private var preferences: AutocompletePreferences
     private var autoDismissWhenHealthy = true
@@ -41,7 +42,7 @@ final class SplashWindowController: NSWindowController {
         preferences = settings.loadPreferences()
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 660),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -256,20 +257,29 @@ final class SplashWindowController: NSWindowController {
         }
         revealCheckbox.target = self
         revealCheckbox.action = #selector(savePreferences)
+        rawTextLoggingCheckbox.target = self
+        rawTextLoggingCheckbox.action = #selector(savePreferences)
         providerSelector.target = self
         providerSelector.action = #selector(providerSelectionChanged)
 
         modelField.placeholderString = "google/gemini-2.0-flash-lite"
         modelField.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        modelField.usesSingleLineMode = true
+        modelField.lineBreakMode = .byTruncatingMiddle
+        modelField.widthAnchor.constraint(greaterThanOrEqualToConstant: 430).isActive = true
 
         let saveProviderButton = NSButton(title: "Save Provider and Restart Sidecar", target: self, action: #selector(saveRuntimeSettings))
         saveProviderButton.bezelStyle = .rounded
+        let copyModelButton = NSButton(title: "Copy Model", target: self, action: #selector(copyModel))
+        copyModelButton.bezelStyle = .rounded
+        let pasteModelButton = NSButton(title: "Paste Model", target: self, action: #selector(pasteModel))
+        pasteModelButton.bezelStyle = .rounded
 
         let content = NSStackView(views: [
             sectionTitle("AI provider"),
             controlRow("Provider", control: providerSelector),
-            textFieldRow("Model", field: modelField),
-            saveProviderButton,
+            modelFieldRow(),
+            horizontalRow([saveProviderButton, copyModelButton, pasteModelButton]),
             helperText("OpenRouter uses OPENROUTER_API_KEY. AI Gateway uses AI_GATEWAY_API_KEY. Model changes restart the sidecar."),
             sectionTitle("Autocomplete timing"),
             sliderRow("Idle debounce", slider: debounceSlider, value: debounceValue),
@@ -280,7 +290,10 @@ final class SplashWindowController: NSWindowController {
             helperText("This animates the local overlay reveal. The sidecar still uses streamed text and records AI SDK stream metadata in sidecar logs."),
             sectionTitle("Overlay placement"),
             sliderRow("Horizontal nudge", slider: nudgeXSlider, value: nudgeXValue),
-            sliderRow("Vertical nudge", slider: nudgeYSlider, value: nudgeYValue)
+            sliderRow("Vertical nudge", slider: nudgeYSlider, value: nudgeYValue),
+            sectionTitle("Diagnostics"),
+            checkboxRow(rawTextLoggingCheckbox),
+            helperText("Raw debug logging is local JSONL only and may include text from the focused input. Turn it off before typing private content.")
         ])
         content.orientation = .vertical
         content.alignment = .width
@@ -397,6 +410,20 @@ final class SplashWindowController: NSWindowController {
         return row
     }
 
+    private func modelFieldRow() -> NSView {
+        textFieldRow("Model", field: modelField)
+    }
+
+    private func horizontalRow(_ views: [NSView]) -> NSView {
+        let spacer = NSView()
+        spacer.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        let row = NSStackView(views: [spacer] + views)
+        row.orientation = .horizontal
+        row.spacing = 10
+        row.alignment = .centerY
+        return row
+    }
+
     private func textFieldRow(_ title: String, field: NSTextField) -> NSView {
         let titleLabel = rowTitle(title)
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -444,6 +471,7 @@ final class SplashWindowController: NSWindowController {
         revealSlider.doubleValue = Double(preferences.revealStepMs)
         nudgeXSlider.doubleValue = Double(preferences.overlayNudgeX)
         nudgeYSlider.doubleValue = Double(preferences.overlayNudgeY)
+        rawTextLoggingCheckbox.state = preferences.rawTextLoggingEnabled ? .on : .off
         updatePreferenceLabels()
     }
 
@@ -473,7 +501,8 @@ final class SplashWindowController: NSWindowController {
             revealAnimationEnabled: revealCheckbox.state == .on,
             revealStepMs: Int(revealSlider.doubleValue.rounded()),
             overlayNudgeX: Int(nudgeXSlider.doubleValue.rounded()),
-            overlayNudgeY: Int(nudgeYSlider.doubleValue.rounded())
+            overlayNudgeY: Int(nudgeYSlider.doubleValue.rounded()),
+            rawTextLoggingEnabled: rawTextLoggingCheckbox.state == .on
         ).sanitized()
     }
 
@@ -589,13 +618,27 @@ final class SplashWindowController: NSWindowController {
         copyToPasteboard(learningTextView.string)
     }
 
+    @objc private func copyModel() {
+        copyToPasteboard(currentModelFieldValue())
+    }
+
+    @objc private func pasteModel() {
+        if let value = NSPasteboard.general.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !value.isEmpty {
+            modelField.stringValue = value
+        }
+    }
+
     @objc private func providerSelectionChanged() {
-        if modelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let currentModel = currentModelFieldValue()
+        if currentModel.isEmpty || SidecarRuntimeSettings.isKnownDefaultModel(currentModel) {
             modelField.stringValue = SidecarRuntimeSettings.defaultModel(for: selectedProvider())
         }
     }
 
     @objc private func savePreferences() {
+        let previousRawTextLogging = preferences.rawTextLoggingEnabled
         preferences = currentControlPreferences()
         updatePreferenceLabels()
         do {
@@ -605,17 +648,22 @@ final class SplashWindowController: NSWindowController {
                 "revealAnimationEnabled": preferences.revealAnimationEnabled,
                 "revealStepMs": preferences.revealStepMs,
                 "overlayNudgeX": preferences.overlayNudgeX,
-                "overlayNudgeY": preferences.overlayNudgeY
+                "overlayNudgeY": preferences.overlayNudgeY,
+                "rawTextLoggingEnabled": preferences.rawTextLoggingEnabled
             ])
+            if previousRawTextLogging != preferences.rawTextLoggingEnabled {
+                onRuntimeSettingsChanged?()
+            }
         } catch {
             TraceLogger.shared.error("preferences_save_failed", fields: ["error": error.localizedDescription])
         }
     }
 
     @objc private func saveRuntimeSettings() {
+        window?.makeFirstResponder(nil)
         let existing = SidecarRuntimeSettings.load(from: settings.sidecarSettingsURL)
         let provider = selectedProvider()
-        let model = modelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = currentModelFieldValue()
         let runtimeSettings = SidecarRuntimeSettings(
             provider: provider,
             model: model.isEmpty ? SidecarRuntimeSettings.defaultModel(for: provider) : model,
@@ -627,10 +675,18 @@ final class SplashWindowController: NSWindowController {
         do {
             try runtimeSettings.write(to: settings.sidecarSettingsURL)
             TraceLogger.shared.info("runtime_settings_saved", fields: runtimeSettings.traceFields)
+            loadRuntimeSettingsIntoControls()
             onRuntimeSettingsChanged?()
         } catch {
             TraceLogger.shared.error("runtime_settings_save_failed", fields: ["error": error.localizedDescription])
         }
+    }
+
+    private func currentModelFieldValue() -> String {
+        if let editor = modelField.currentEditor() {
+            return editor.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return modelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func openSettings(_ rawURL: String) {

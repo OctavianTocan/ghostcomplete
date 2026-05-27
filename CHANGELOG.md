@@ -35,3 +35,10 @@ All notable changes to GhostComplete will be documented in this file.
 - Added provider and model controls to the Settings tab; saving either one persists sidecar runtime settings and restarts the local sidecar.
 - Changed the Logs tab to render JSONL traces as human-readable diagnostics, hide low-value no-focus heartbeat chatter, collapse repeated lines, and added Copy buttons to Logs and Learning.
 - Cleaned the Learning tab so it shows profile vocabulary, curated snippets, accepted suggestions, and real learning events instead of noisy request events or guessed word counts.
+- Fixed saved provider/model settings so they override inherited `.env.local` values on sidecar launch and are not overwritten by the Keychain seeding path.
+- Changed the OpenRouter default model to `google/gemini-2.0-flash-lite-001`, matching OpenRouter's model slug instead of the shorter AI Gateway slug.
+- Added Copy Model and Paste Model controls, wider model editing, and immediate sidecar restart after saving provider/model settings.
+- Added an optional raw diagnostic logging toggle that records typed context, prompt text, and completion text to local JSONL only when explicitly enabled.
+- Fixed ghost overlay horizontal placement so caret-anchored overlays start at the caret x-position instead of after the caret rect.
+- Throttled repeated backoff traces so rate-limit windows do not flood logs while typing continues.
+- Added `scripts/gcx` plus `bun run gcx` and `bun run verify:completions` for agent-facing doctor checks, settings inspection, localhost sidecar API calls, and disposable fake-completion verification.

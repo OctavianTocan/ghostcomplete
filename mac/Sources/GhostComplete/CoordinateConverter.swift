@@ -9,7 +9,7 @@ enum CoordinateConverter {
 
     static func overlayOrigin(caretRect: CGRect?, fallbackElementRect: CGRect?, panelHeight: CGFloat = 24) -> CGPoint {
         if let caretRect {
-            return CGPoint(x: caretRect.maxX + 1, y: caretRect.midY - panelHeight / 2)
+            return CGPoint(x: caretRect.minX, y: caretRect.midY - panelHeight / 2)
         }
         if let fallbackElementRect {
             return CGPoint(x: fallbackElementRect.minX + 6, y: fallbackElementRect.midY - panelHeight / 2)

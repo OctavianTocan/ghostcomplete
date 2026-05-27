@@ -18,6 +18,7 @@ logger.info("sidecar_boot", {
   port: config.port,
   hasGatewayKey: Boolean(process.env.AI_GATEWAY_API_KEY),
   hasOpenRouterKey: Boolean(process.env.OPENROUTER_API_KEY),
+  rawTextLogging: config.rawTextLogging,
   fakeCompletion: config.fakeCompletion !== undefined,
 });
 

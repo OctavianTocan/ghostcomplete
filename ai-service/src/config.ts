@@ -19,6 +19,7 @@ export interface ServiceConfig {
   maxOutputTokens: number;
   temperature: number;
   openRouterApiKey?: string;
+  rawTextLogging: boolean;
   fakeCompletion?: string;
 }
 
@@ -43,6 +44,16 @@ function providerFromEnv(): ProviderKind {
   return process.env.OPENROUTER_API_KEY ? "openrouter" : "gateway";
 }
 
+function boolFromEnv(name: string, fallback = false): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) return fallback;
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
+function defaultModel(provider: ProviderKind): string {
+  return provider === "openrouter" ? "google/gemini-2.0-flash-lite-001" : "google/gemini-2.0-flash-lite";
+}
+
 export function loadConfig(): ServiceConfig {
   const appSupportDir =
     process.env.GHOSTCOMPLETE_APP_SUPPORT ??
@@ -57,7 +68,7 @@ export function loadConfig(): ServiceConfig {
     logDir,
     sidecarLogPath: path.join(logDir, "sidecar.jsonl"),
     provider,
-    model: process.env.GHOSTCOMPLETE_MODEL ?? "google/gemini-2.0-flash-lite",
+    model: process.env.GHOSTCOMPLETE_MODEL ?? defaultModel(provider),
     token: process.env.GHOSTCOMPLETE_TOKEN ?? "",
     host: process.env.GHOSTCOMPLETE_HOST ?? "127.0.0.1",
     port: intFromEnv("GHOSTCOMPLETE_PORT", 50573),
@@ -65,6 +76,7 @@ export function loadConfig(): ServiceConfig {
     maxOutputTokens: intFromEnv("GHOSTCOMPLETE_MAX_OUTPUT_TOKENS", 48),
     temperature: floatFromEnv("GHOSTCOMPLETE_TEMPERATURE", 0.2),
     openRouterApiKey: process.env.OPENROUTER_API_KEY,
+    rawTextLogging: boolFromEnv("GHOSTCOMPLETE_LOG_RAW_TEXT"),
     fakeCompletion: process.env.GHOSTCOMPLETE_FAKE_COMPLETION,
   };
 }

@@ -21,9 +21,12 @@ if CommandLine.arguments.contains("--store-api-key-and-exit") {
         if !openRouterKey.isEmpty {
             try keychain.setString(openRouterKey, account: KeychainStore.openRouterAccount)
         }
-        let runtimeSettings = SidecarRuntimeSettings
+        let environmentRuntimeSettings = SidecarRuntimeSettings
             .fromEnvironment()
             .fillingDefaultProvider(openRouterKey: openRouterKey, gatewayKey: gatewayKey)
+        let existingRuntimeSettings = SidecarRuntimeSettings.load(from: settings.sidecarSettingsURL)
+        let runtimeSettings = (existingRuntimeSettings ?? SidecarRuntimeSettings())
+            .fillingMissing(from: environmentRuntimeSettings)
         if !runtimeSettings.isEmpty {
             try runtimeSettings.write(to: settings.sidecarSettingsURL)
             TraceLogger.shared.info("sidecar_runtime_settings_saved", fields: runtimeSettings.traceFields)

@@ -17,6 +17,7 @@ final class CompletionCoordinator {
     private var completionBackoffUntil: Date?
     private var activeCompletionRequest: SidecarRequestHandle?
     private var lastRequestedSignature: CompletionRequestSignature?
+    private var lastBackoffTraceSecond: Int?
     var onCompletionStatus: ((CompletionStatusSnapshot) -> Void)?
 
     init(
@@ -108,9 +109,12 @@ final class CompletionCoordinator {
                 if let key = keys.openRouter, !key.isEmpty {
                     try keychain.setString(key, account: KeychainStore.openRouterAccount)
                 }
-                let runtimeSettings = SidecarRuntimeSettings
+                let environmentRuntimeSettings = SidecarRuntimeSettings
                     .fromEnvironment()
                     .fillingDefaultProvider(openRouterKey: keys.openRouter, gatewayKey: keys.gateway)
+                let existingRuntimeSettings = SidecarRuntimeSettings.load(from: sidecarSettingsURL)
+                let runtimeSettings = (existingRuntimeSettings ?? SidecarRuntimeSettings())
+                    .fillingMissing(from: environmentRuntimeSettings)
                 if !runtimeSettings.isEmpty {
                     try runtimeSettings.write(to: sidecarSettingsURL)
                     TraceLogger.shared.info("sidecar_runtime_settings_saved", fields: runtimeSettings.traceFields)
@@ -162,6 +166,9 @@ final class CompletionCoordinator {
     func restartSidecarAsync(onStatus: (@MainActor (Bool) -> Void)? = nil) {
         TraceLogger.shared.info("sidecar_restart_requested")
         cancelPendingCompletion(reason: "sidecar_restart")
+        completionBackoffUntil = nil
+        lastBackoffTraceSecond = nil
+        lastRequestedSignature = nil
         sidecar.stop()
         startSidecarAsync(onStatus: onStatus)
     }
@@ -226,14 +233,19 @@ final class CompletionCoordinator {
     private func requestCompletion() {
         if let completionBackoffUntil, completionBackoffUntil > Date() {
             let retryAfterMs = Int(completionBackoffUntil.timeIntervalSinceNow * 1000)
+            let retryAfterSeconds = max(Int(ceil(completionBackoffUntil.timeIntervalSinceNow)), 1)
             updateCompletionStatus(
-                label: "Backoff \(max(retryAfterMs / 1000, 1))s",
+                label: "Backoff \(retryAfterSeconds)s",
                 isHealthy: false,
                 detail: "Waiting before retrying after the previous completion failure."
             )
-            TraceLogger.shared.warn("completion_suppressed_by_backoff", fields: [
-                "retryAfterMs": retryAfterMs
-            ])
+            if lastBackoffTraceSecond != retryAfterSeconds {
+                lastBackoffTraceSecond = retryAfterSeconds
+                TraceLogger.shared.warn("completion_suppressed_by_backoff", fields: [
+                    "retryAfterMs": retryAfterMs,
+                    "retryAfterSeconds": retryAfterSeconds
+                ])
+            }
             return
         }
 
@@ -278,7 +290,7 @@ final class CompletionCoordinator {
         activeSnapshot = snapshot
         lastRequestedSignature = signature
         updateCompletionStatus(label: "Requesting", isHealthy: nil, detail: nil)
-        TraceLogger.shared.info("completion_request_started", fields: [
+        var traceFields: [String: Any] = [
             "requestId": requestId,
             "appBundleId": snapshot.app.bundleId,
             "appName": snapshot.app.name,
@@ -295,7 +307,12 @@ final class CompletionCoordinator {
             "elementHeight": snapshot.elementRect.map { Int($0.height) } ?? -1,
             "selectionLocation": snapshot.selection?.location ?? -1,
             "selectionLength": snapshot.selection?.length ?? -1
-        ])
+        ]
+        if settings.loadPreferences().rawTextLoggingEnabled {
+            traceFields["context"] = snapshot.context
+            traceFields["contextSuffix"] = String(snapshot.context.suffix(500))
+        }
+        TraceLogger.shared.info("completion_request_started", fields: traceFields)
 
         activeCompletionRequest = sidecar.complete(snapshot: snapshot, requestId: requestId) { [weak self] result in
             Task { @MainActor [weak self] in
@@ -326,6 +343,12 @@ final class CompletionCoordinator {
                     "completionLength": text.count,
                     "completionHash": text.ghostCompleteSHA256
                 ])
+                if settings.loadPreferences().rawTextLoggingEnabled {
+                    TraceLogger.shared.info("completion_response_text", fields: [
+                        "requestId": requestId,
+                        "completion": text
+                    ])
+                }
                 updateCompletionStatus(
                     label: "Shown (\(visibleText.count) chars)",
                     isHealthy: true,
@@ -347,6 +370,12 @@ final class CompletionCoordinator {
                     "visibleLength": visibleText.count,
                     "completionHash": text.ghostCompleteSHA256
                 ])
+                if settings.loadPreferences().rawTextLoggingEnabled {
+                    TraceLogger.shared.info("completion_response_text", fields: [
+                        "requestId": requestId,
+                        "completion": text
+                    ])
+                }
                 updateCompletionStatus(
                     label: "Empty suggestion",
                     isHealthy: false,
@@ -354,6 +383,7 @@ final class CompletionCoordinator {
                 )
             }
             completionBackoffUntil = nil
+            lastBackoffTraceSecond = nil
         case .failure(let error):
             if isCancellation(error) {
                 TraceLogger.shared.info("completion_request_cancelled", fields: ["requestId": requestId])

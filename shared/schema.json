@@ -27,7 +27,7 @@
       "required": ["requestId", "context", "app"],
       "properties": {
         "requestId": { "type": "string", "minLength": 1 },
-        "context": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "context": { "type": "string", "minLength": 1, "maxLength": 4000 },
         "app": { "$ref": "#/definitions/appContext" },
         "selection": { "$ref": "#/definitions/selection" }
       },
