@@ -243,4 +243,42 @@ describe("sidecar server", () => {
       store.close();
     }
   });
+
+  it("returns an empty completion for aborted autocomplete requests", async () => {
+    const config = await makeConfig();
+    const store = new LearningStore(config.databasePath);
+    const engine: CompletionEngine = {
+      complete: async () => {
+        const error = new Error("The operation was aborted.");
+        error.name = "AbortError";
+        throw error;
+      },
+    };
+    const server = createServer(config, engine, store);
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/complete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer test-token",
+        },
+        body: JSON.stringify({
+          requestId: "abort-test",
+          context: "Nearly finished",
+          app: { bundleId: "com.apple.TextEdit", name: "TextEdit" },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        requestId: "abort-test",
+        completion: "",
+        model: "test/model",
+      });
+    } finally {
+      server.stop();
+      store.close();
+    }
+  });
 });

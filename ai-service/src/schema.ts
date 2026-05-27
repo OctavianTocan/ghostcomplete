@@ -1,7 +1,7 @@
 import type { AppContext, CompleteRequest, LearnRequest, SelectionRange } from "./types.js";
+import { MAX_PREFIX_CHARS, MAX_SUGGESTION_CHARS } from "./autocomplete.js";
 
-const MAX_CONTEXT_CHARS = 2000;
-const MAX_SUGGESTION_CHARS = 2000;
+const MAX_CONTEXT_CHARS = MAX_PREFIX_CHARS;
 
 export class ValidationError extends Error {
   constructor(message: string) {

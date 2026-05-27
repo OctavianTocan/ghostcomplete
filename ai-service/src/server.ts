@@ -103,7 +103,7 @@ export function createServer(
           });
 
           store.recordCompletionRequest(completeRequest.requestId, contextHash, completeRequest.app);
-          const result = await engine.complete(completeRequest.context, prompt);
+          const result = await engine.complete(completeRequest.context, prompt, req.signal);
           const completion = result.completion;
           const latencyMs = Math.round(performance.now() - requestStarted);
 
@@ -172,6 +172,22 @@ export function createServer(
         }
 
         const classified = classifyRequestError(error);
+        if (classified.softEmpty) {
+          const latencyMs = Math.round(performance.now() - requestStarted);
+          logger.warn("completion_request_soft_empty", {
+            path: url.pathname,
+            requestId: requestId ?? null,
+            code: classified.code,
+            message: classified.message,
+            latencyMs,
+          });
+          return json({
+            requestId: requestId ?? "",
+            completion: "",
+            model: config.model,
+            latencyMs,
+          });
+        }
         logger.error("request_failed", {
           path: url.pathname,
           requestId: requestId ?? null,
@@ -193,25 +209,29 @@ export function createServer(
   return server;
 }
 
-function classifyRequestError(error: unknown): { code: string; status: number; message: string } {
+function classifyRequestError(error: unknown): { code: string; status: number; message: string; softEmpty: boolean } {
   const message = error instanceof Error ? error.message : String(error);
+  const name = error instanceof Error ? error.name : "";
   const lower = message.toLowerCase();
 
-  if (error instanceof Error && error.name === "AbortError") {
-    return { code: "timeout", status: 504, message };
+  if (name === "TimeoutError" || lower.includes("timeout") || lower.includes("timed out")) {
+    return { code: "timeout", status: 200, message, softEmpty: true };
+  }
+  if (name === "AbortError" || lower.includes("abort") || lower.includes("cancelled") || lower.includes("canceled")) {
+    return { code: "cancelled", status: 200, message, softEmpty: true };
   }
   if (lower.includes("rate-limit") || lower.includes("rate limit") || lower.includes("rate_limited")) {
-    return { code: "rate_limited", status: 429, message };
+    return { code: "rate_limited", status: 429, message, softEmpty: false };
   }
   if (
     lower.includes("restricted model") ||
     lower.includes("access to this model") ||
     lower.includes("model access")
   ) {
-    return { code: "model_access_denied", status: 403, message };
+    return { code: "model_access_denied", status: 403, message, softEmpty: false };
   }
 
-  return { code: "sidecar_error", status: 500, message };
+  return { code: "sidecar_error", status: 500, message, softEmpty: false };
 }
 
 function completionTraceFields(result: CompletionResult): Record<string, unknown> {

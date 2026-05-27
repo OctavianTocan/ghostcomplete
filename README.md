@@ -52,6 +52,7 @@ The sidecar reads:
 
 - `AI_GATEWAY_API_KEY` for Vercel AI Gateway auth.
 - `GHOSTCOMPLETE_MODEL` for the AI Gateway model string. Default: `google/gemini-2.0-flash-lite`.
+- `GHOSTCOMPLETE_TIMEOUT_MS` for the autocomplete model timeout. Default: `4000`.
 - `GHOSTCOMPLETE_PORT` for development. Production launch uses the bundled Bun sidecar.
 - `GHOSTCOMPLETE_LOG_DIR` to override the default JSONL trace directory.
 
@@ -62,6 +63,10 @@ Seed Keychain with `bun run set-key`, or run `bun run install:local` after setti
 ## AI Gateway
 
 The sidecar uses Vercel AI SDK `streamText` through AI Gateway and then returns the final continuation to the Swift app over the local JSON protocol. Stream traces include chunk count, first-token latency, stream latency, finish reason, provider response metadata, warnings, and token usage.
+
+Autocomplete requests are trailing-debounced on the Mac side. GhostComplete waits for 300 ms of idle typing, skips prefixes shorter than 3 visible characters, sends at most the last 4000 characters before the caret, suppresses unchanged duplicate contexts, and cancels in-flight requests when newer typing arrives. Suggestions are capped at 80 characters.
+
+Timeouts and cancellations are soft failures: the sidecar returns an empty completion and the app shows no overlay. Provider access and rate-limit errors are still logged and surfaced in status so they are diagnosable.
 
 `openai/gpt-5.4` works only when your Vercel AI Gateway account has access to that model. On free-tier Gateway accounts it can fail with a restricted-model error, so the local default uses `google/gemini-2.0-flash-lite`. Set `GHOSTCOMPLETE_MODEL=openai/gpt-5.4` in `.env.local` if your Gateway account supports it.
 
@@ -112,7 +117,7 @@ bun run logs
 bun run logs:tail
 ```
 
-The trace stream includes app launch, permission checks, sidecar launch, request lifecycle, stale responses, stream chunk counts, first-token latency, completion latency, AI SDK token usage, finish reasons, response metadata, overlay coordinates, insertion strategy, accepted suggestions, validation failures, model access errors, Gateway rate limits, model timeouts, and sidecar shutdown. Raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields.
+The trace stream includes app launch, permission checks, sidecar launch, debounce suppression, duplicate-context suppression, request cancellation, request lifecycle, stale responses, stream chunk counts, first-token latency, completion latency, AI SDK token usage, finish reasons, response metadata, overlay coordinates, insertion strategy, accepted suggestions, validation failures, model access errors, Gateway rate limits, soft model timeouts, and sidecar shutdown. Raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields.
 
 ## Permissions And Keychain Prompts
 

@@ -9,6 +9,11 @@ import {
   type ProviderMetadata,
 } from "ai";
 import { performance } from "node:perf_hooks";
+import {
+  AUTOCOMPLETE_PROVIDER_OPTIONS,
+  AUTOCOMPLETE_REASONING,
+  AUTOCOMPLETE_STOP_SEQUENCES,
+} from "./autocomplete.js";
 import type { ServiceConfig } from "./config.js";
 import type { PromptParts } from "./prompt.js";
 import { sanitizeContinuation } from "./privacy.js";
@@ -40,6 +45,10 @@ export interface CompletionResult {
 export interface CompletionEngine {
   complete(context: string, prompt: PromptParts, signal?: AbortSignal): Promise<CompletionResult>;
 }
+
+type StreamTextOptions = Parameters<typeof streamText>[0] & {
+  reasoning: typeof AUTOCOMPLETE_REASONING;
+};
 
 function timeoutSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
   const timeout = AbortSignal.timeout(timeoutMs);
@@ -77,15 +86,17 @@ export class VercelAICompletionEngine implements CompletionEngine {
   async complete(context: string, prompt: PromptParts, signal?: AbortSignal): Promise<CompletionResult> {
     const startedAt = performance.now();
     const result = streamText({
+      reasoning: AUTOCOMPLETE_REASONING,
       model: gateway(this.config.model),
       system: prompt.system,
       prompt: prompt.prompt,
       temperature: this.config.temperature,
       maxOutputTokens: this.config.maxOutputTokens,
-      stopSequences: ["\n\n", "```", "</"],
+      stopSequences: AUTOCOMPLETE_STOP_SEQUENCES,
+      providerOptions: AUTOCOMPLETE_PROVIDER_OPTIONS,
       maxRetries: 0,
       abortSignal: timeoutSignal(this.config.timeoutMs, signal),
-    });
+    } as StreamTextOptions);
 
     return collectStreamResult(context, result, startedAt);
   }
@@ -100,15 +111,17 @@ export class ModelCompletionEngine implements CompletionEngine {
   async complete(context: string, prompt: PromptParts, signal?: AbortSignal): Promise<CompletionResult> {
     const startedAt = performance.now();
     const result = streamText({
+      reasoning: AUTOCOMPLETE_REASONING,
       model: this.model,
       system: prompt.system,
       prompt: prompt.prompt,
       temperature: this.config.temperature,
       maxOutputTokens: this.config.maxOutputTokens,
-      stopSequences: ["\n\n", "```", "</"],
+      stopSequences: AUTOCOMPLETE_STOP_SEQUENCES,
+      providerOptions: AUTOCOMPLETE_PROVIDER_OPTIONS,
       maxRetries: 0,
       abortSignal: timeoutSignal(this.config.timeoutMs, signal),
-    });
+    } as StreamTextOptions);
     return collectStreamResult(context, result, startedAt);
   }
 }

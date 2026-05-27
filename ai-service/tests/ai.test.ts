@@ -1,11 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { MockLanguageModelV2, simulateReadableStream } from "ai/test";
+import {
+  AUTOCOMPLETE_PROVIDER_OPTIONS,
+  AUTOCOMPLETE_STOP_SEQUENCES,
+} from "../src/autocomplete.js";
 import { ModelCompletionEngine } from "../src/ai.js";
 
 describe("AI SDK wrapper", () => {
   it("uses a fake AI SDK model for deterministic completions", async () => {
-    const engine = new ModelCompletionEngine(
-      new MockLanguageModelV2({
+    const model = new MockLanguageModelV2({
         doStream: async () => ({
           stream: simulateReadableStream({
             chunks: [
@@ -31,7 +34,9 @@ describe("AI SDK wrapper", () => {
             ],
           }),
         }),
-      }),
+      });
+    const engine = new ModelCompletionEngine(
+      model,
       { temperature: 0.2, maxOutputTokens: 24, timeoutMs: 1000 },
     );
 
@@ -46,5 +51,12 @@ describe("AI SDK wrapper", () => {
     expect(result.finishReason).toBe("stop");
     expect(result.response?.modelId).toBe("mock-model");
     expect(result.metadataFailures).toEqual([]);
+    expect(model.doStreamCalls).toHaveLength(1);
+    expect(model.doStreamCalls[0]).toMatchObject({
+      maxOutputTokens: 24,
+      temperature: 0.2,
+      stopSequences: AUTOCOMPLETE_STOP_SEQUENCES,
+      providerOptions: AUTOCOMPLETE_PROVIDER_OPTIONS,
+    });
   });
 });

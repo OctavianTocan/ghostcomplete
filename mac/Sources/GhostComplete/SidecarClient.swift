@@ -4,6 +4,7 @@ enum SidecarError: Error, LocalizedError {
     case missingScript
     case missingPort
     case badResponse
+    case cancelled
     case requestFailed(status: Int, message: String?)
     case launchFailed(String)
 
@@ -15,6 +16,8 @@ enum SidecarError: Error, LocalizedError {
             return "Sidecar is not ready yet."
         case .badResponse:
             return "Sidecar returned an invalid response."
+        case .cancelled:
+            return "Sidecar request was cancelled."
         case .requestFailed(let status, let message):
             if let message, !message.isEmpty {
                 return message
@@ -23,6 +26,23 @@ enum SidecarError: Error, LocalizedError {
         case .launchFailed(let message):
             return message
         }
+    }
+}
+
+final class SidecarRequestHandle {
+    private let cancelBlock: () -> Void
+    private(set) var isCancelled = false
+
+    init(cancelBlock: @escaping () -> Void) {
+        self.cancelBlock = cancelBlock
+    }
+
+    func cancel() {
+        guard !isCancelled else {
+            return
+        }
+        isCancelled = true
+        cancelBlock()
     }
 }
 
@@ -107,7 +127,8 @@ final class SidecarClient {
         port = nil
     }
 
-    func complete(snapshot: FocusSnapshot, requestId: String, completion: @escaping @Sendable (Result<CompleteResponse, Error>) -> Void) {
+    @discardableResult
+    func complete(snapshot: FocusSnapshot, requestId: String, completion: @escaping @Sendable (Result<CompleteResponse, Error>) -> Void) -> SidecarRequestHandle? {
         let request = CompleteRequest(
             requestId: requestId,
             context: snapshot.context,
@@ -120,7 +141,7 @@ final class SidecarClient {
             "contextHash": snapshot.context.ghostCompleteSHA256,
             "appBundleId": snapshot.app.bundleId
         ])
-        post(path: "/complete", body: request, completion: completion)
+        return post(path: "/complete", body: request, completion: completion)
     }
 
     func learnAccepted(snapshot: FocusSnapshot, requestId: String, suggestion: String) {
@@ -140,15 +161,16 @@ final class SidecarClient {
         post(path: "/learn", body: request) { (_: Result<LearnResponse, Error>) in }
     }
 
+    @discardableResult
     private func post<Request: Encodable, Response: Decodable & Sendable>(
         path: String,
         body: Request,
         completion: @escaping @Sendable (Result<Response, Error>) -> Void
-    ) {
+    ) -> SidecarRequestHandle? {
         guard let port else {
             TraceLogger.shared.warn("sidecar_post_missing_port", fields: ["path": path])
             completion(.failure(SidecarError.missingPort))
-            return
+            return nil
         }
 
         var urlRequest = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
@@ -164,13 +186,24 @@ final class SidecarClient {
                 "error": error.localizedDescription
             ])
             completion(.failure(error))
-            return
+            return nil
         }
 
         let startedAt = Date()
         TraceLogger.shared.debug("sidecar_post_started", fields: ["path": path, "port": port])
-        URLSession.shared.dataTask(with: urlRequest) { data, response, error in
+        let task = URLSession.shared.dataTask(with: urlRequest) { data, response, error in
             if let error {
+                let nsError = error as NSError
+                if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                    Task { @MainActor in
+                        TraceLogger.shared.info("sidecar_post_cancelled", fields: [
+                            "path": path,
+                            "latencyMs": Int(Date().timeIntervalSince(startedAt) * 1000)
+                        ])
+                    }
+                    completion(.failure(SidecarError.cancelled))
+                    return
+                }
                 Task { @MainActor in
                     TraceLogger.shared.error("sidecar_post_failed", fields: [
                         "path": path,
@@ -222,7 +255,12 @@ final class SidecarClient {
                 }
                 completion(.failure(error))
             }
-        }.resume()
+        }
+        let handle = SidecarRequestHandle {
+            task.cancel()
+        }
+        task.resume()
+        return handle
     }
 
     private func sidecarScriptURL() -> URL? {

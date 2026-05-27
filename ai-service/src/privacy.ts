@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { MAX_SUGGESTION_CHARS } from "./autocomplete.js";
 
 export function hashText(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
@@ -37,5 +38,5 @@ export function sanitizeContinuation(context: string, raw: string): string {
     return "";
   }
 
-  return text.slice(0, 280);
+  return text.slice(0, MAX_SUGGESTION_CHARS);
 }

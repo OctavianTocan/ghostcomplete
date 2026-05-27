@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { MAX_PREFIX_CHARS } from "../src/autocomplete.js";
 import { parseCompleteRequest, parseLearnRequest } from "../src/schema.js";
 
 describe("schema validation", () => {
@@ -20,6 +21,26 @@ describe("schema validation", () => {
         app: { bundleId: "com.apple.TextEdit", name: "TextEdit" },
       }),
     ).toThrow(/context/);
+  });
+
+  it("accepts autocomplete prefixes up to the configured cap", () => {
+    const parsed = parseCompleteRequest({
+      requestId: "1",
+      context: "a".repeat(MAX_PREFIX_CHARS),
+      app: { bundleId: "com.apple.TextEdit", name: "TextEdit" },
+    });
+
+    expect(parsed.context).toHaveLength(MAX_PREFIX_CHARS);
+  });
+
+  it("rejects autocomplete prefixes over the configured cap", () => {
+    expect(() =>
+      parseCompleteRequest({
+        requestId: "1",
+        context: "a".repeat(MAX_PREFIX_CHARS + 1),
+        app: { bundleId: "com.apple.TextEdit", name: "TextEdit" },
+      }),
+    ).toThrow(/context is too long/);
   });
 
   it("accepts learn events without raw context", () => {

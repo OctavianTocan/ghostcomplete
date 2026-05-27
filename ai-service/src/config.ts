@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { AUTOCOMPLETE_TIMEOUT_MS } from "./autocomplete.js";
 
 export interface ServiceConfig {
   appSupportDir: string;
@@ -47,7 +48,7 @@ export function loadConfig(): ServiceConfig {
     token: process.env.GHOSTCOMPLETE_TOKEN ?? "",
     host: process.env.GHOSTCOMPLETE_HOST ?? "127.0.0.1",
     port: intFromEnv("GHOSTCOMPLETE_PORT", 50573),
-    timeoutMs: intFromEnv("GHOSTCOMPLETE_TIMEOUT_MS", 3500),
+    timeoutMs: intFromEnv("GHOSTCOMPLETE_TIMEOUT_MS", AUTOCOMPLETE_TIMEOUT_MS),
     maxOutputTokens: intFromEnv("GHOSTCOMPLETE_MAX_OUTPUT_TOKENS", 48),
     temperature: floatFromEnv("GHOSTCOMPLETE_TEMPERATURE", 0.2),
     fakeCompletion: process.env.GHOSTCOMPLETE_FAKE_COMPLETION,

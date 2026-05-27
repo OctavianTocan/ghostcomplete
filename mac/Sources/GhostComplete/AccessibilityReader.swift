@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 
 final class AccessibilityReader {
-    private let maxContextCharacters = 500
+    private let maxContextCharacters = AutocompletePolicy.maxPrefixCharacters
 
     func focusedSnapshot(settings: SettingsStore) -> FocusSnapshot? {
         let system = AXUIElementCreateSystemWide()

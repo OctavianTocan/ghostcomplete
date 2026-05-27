@@ -15,6 +15,8 @@ final class CompletionCoordinator {
     private var activeSnapshot: FocusSnapshot?
     private var sidecarStartInFlight = false
     private var completionBackoffUntil: Date?
+    private var activeCompletionRequest: SidecarRequestHandle?
+    private var lastRequestedSignature: CompletionRequestSignature?
     var onCompletionStatus: ((CompletionStatusSnapshot) -> Void)?
 
     init(
@@ -22,7 +24,7 @@ final class CompletionCoordinator {
         reader: AccessibilityReader = AccessibilityReader(),
         insertion: InsertionController = InsertionController(),
         overlay: OverlayPanel = OverlayPanel(),
-        debouncer: Debouncer = Debouncer(delay: 0.35)
+        debouncer: Debouncer = Debouncer(delay: AutocompletePolicy.debounceDelay)
     ) {
         self.settings = settings
         self.reader = reader
@@ -126,11 +128,13 @@ final class CompletionCoordinator {
 
     func stopSidecar() {
         TraceLogger.shared.info("sidecar_stop_requested")
+        cancelPendingCompletion(reason: "sidecar_stop")
         sidecar.stop()
     }
 
     func restartSidecarAsync(onStatus: (@MainActor (Bool) -> Void)? = nil) {
         TraceLogger.shared.info("sidecar_restart_requested")
+        cancelPendingCompletion(reason: "sidecar_restart")
         sidecar.stop()
         startSidecarAsync(onStatus: onStatus)
     }
@@ -144,6 +148,8 @@ final class CompletionCoordinator {
         ])
 
         if flags.contains(.maskCommand) || flags.contains(.maskControl) {
+            cancelPendingCompletion(reason: "shortcut")
+            dismissSuggestion()
             return .pass
         }
 
@@ -154,17 +160,33 @@ final class CompletionCoordinator {
                 acceptSuggestion()
                 return .swallow
             }
+            cancelPendingCompletion(reason: "tab")
+            dismissSuggestion()
+            return .pass
         case 53:
+            cancelPendingCompletion(reason: "escape")
+            dismissSuggestion()
             if overlay.isVisible {
                 TraceLogger.shared.info("key_dismiss_suggestion")
-                dismissSuggestion()
                 return .swallow
             }
+            return .pass
         case 36, 51, 117, 123, 124, 125, 126:
             TraceLogger.shared.debug("key_navigation_or_edit", fields: ["keyCode": Int(keyCode)])
+            cancelPendingCompletion(reason: "navigation_or_edit")
             dismissSuggestion()
             return .pass
         default:
+            guard AutocompletePolicy.shouldScheduleCompletion(keyCode: keyCode, flags: flags) else {
+                TraceLogger.shared.debug("completion_debounce_suppressed", fields: [
+                    "reason": "non_text_key",
+                    "keyCode": Int(keyCode)
+                ])
+                cancelPendingCompletion(reason: "non_text_key")
+                dismissSuggestion()
+                return .pass
+            }
+            cancelPendingCompletion(reason: "typing")
             dismissSuggestion()
             scheduleCompletion()
         }
@@ -206,12 +228,25 @@ final class CompletionCoordinator {
             return
         }
 
-        guard snapshot.context.trimmingCharacters(in: .whitespacesAndNewlines).count >= 8 else {
+        guard AutocompletePolicy.hasEnoughVisiblePrefix(snapshot.context) else {
             updateCompletionStatus(label: "Waiting for more text", isHealthy: nil, detail: nil)
             TraceLogger.shared.debug("completion_context_too_short", fields: [
                 "contextLength": snapshot.context.count,
+                "minPrefixCharacters": AutocompletePolicy.minPrefixCharacters,
                 "appBundleId": snapshot.app.bundleId,
                 "appName": snapshot.app.name
+            ])
+            return
+        }
+
+        let signature = AutocompletePolicy.requestSignature(for: snapshot)
+        guard signature != lastRequestedSignature else {
+            updateCompletionStatus(label: "Context unchanged", isHealthy: nil, detail: nil)
+            TraceLogger.shared.debug("completion_duplicate_context_suppressed", fields: [
+                "contextHash": snapshot.context.ghostCompleteSHA256,
+                "appBundleId": snapshot.app.bundleId,
+                "selectionLocation": snapshot.selection?.location ?? -1,
+                "selectionLength": snapshot.selection?.length ?? -1
             ])
             return
         }
@@ -219,6 +254,7 @@ final class CompletionCoordinator {
         let requestId = UUID().uuidString
         latestRequestId = requestId
         activeSnapshot = snapshot
+        lastRequestedSignature = signature
         updateCompletionStatus(label: "Requesting", isHealthy: nil, detail: nil)
         TraceLogger.shared.info("completion_request_started", fields: [
             "requestId": requestId,
@@ -231,7 +267,7 @@ final class CompletionCoordinator {
             "selectionLength": snapshot.selection?.length ?? -1
         ])
 
-        sidecar.complete(snapshot: snapshot, requestId: requestId) { [weak self] result in
+        activeCompletionRequest = sidecar.complete(snapshot: snapshot, requestId: requestId) { [weak self] result in
             Task { @MainActor [weak self] in
                 self?.handleCompletionResult(result, requestId: requestId, snapshot: snapshot)
             }
@@ -240,9 +276,13 @@ final class CompletionCoordinator {
 
     private func handleCompletionResult(_ result: Result<CompleteResponse, Error>, requestId: String, snapshot: FocusSnapshot) {
         guard latestRequestId == requestId else {
-            TraceLogger.shared.debug("completion_response_stale", fields: ["requestId": requestId])
+            TraceLogger.shared.debug("completion_response_stale", fields: [
+                "requestId": requestId,
+                "reason": "latest_request_changed"
+            ])
             return
         }
+        activeCompletionRequest = nil
 
         switch result {
         case .success(let response):
@@ -279,6 +319,11 @@ final class CompletionCoordinator {
             }
             completionBackoffUntil = nil
         case .failure(let error):
+            if isCancellation(error) {
+                TraceLogger.shared.info("completion_request_cancelled", fields: ["requestId": requestId])
+                updateCompletionStatus(label: "Cancelled", isHealthy: nil, detail: nil)
+                return
+            }
             completionBackoffUntil = Date().addingTimeInterval(30)
             let detail = error.localizedDescription
             updateCompletionStatus(
@@ -293,6 +338,25 @@ final class CompletionCoordinator {
             ])
             NSLog("[GhostComplete] Completion failed: \(error.localizedDescription)")
         }
+    }
+
+    private func cancelPendingCompletion(reason: String) {
+        debouncer.cancel()
+        if let activeCompletionRequest {
+            TraceLogger.shared.info("completion_request_cancelled", fields: ["reason": reason])
+            activeCompletionRequest.cancel()
+            self.activeCompletionRequest = nil
+            latestRequestId = nil
+        }
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if let sidecarError = error as? SidecarError,
+           case .cancelled = sidecarError {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
     private func updateCompletionStatus(label: String, isHealthy: Bool?, detail: String?) {
