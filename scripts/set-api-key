@@ -3,6 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/load-env"
+source "$ROOT/scripts/lib/keychain"
+
+APP_EXECUTABLE="/Applications/GhostComplete.app/Contents/MacOS/GhostComplete"
 
 KEY="${AI_GATEWAY_API_KEY:-}"
 
@@ -16,10 +19,4 @@ if [[ -z "$KEY" ]]; then
   exit 1
 fi
 
-security add-generic-password \
-  -a "AI_GATEWAY_API_KEY" \
-  -s "GhostComplete" \
-  -w "$KEY" \
-  -U >/dev/null
-
-echo "Stored AI_GATEWAY_API_KEY in Keychain for GhostComplete."
+store_gateway_key_in_keychain "$KEY" "$APP_EXECUTABLE"
