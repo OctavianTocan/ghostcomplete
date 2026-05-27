@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghostcomplete.local/schema.json",
+  "title": "GhostComplete Local Sidecar Protocol",
+  "type": "object",
+  "definitions": {
+    "appContext": {
+      "type": "object",
+      "required": ["bundleId", "name"],
+      "properties": {
+        "bundleId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "selection": {
+      "type": "object",
+      "required": ["location", "length"],
+      "properties": {
+        "location": { "type": "integer", "minimum": 0 },
+        "length": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "completeRequest": {
+      "type": "object",
+      "required": ["requestId", "context", "app"],
+      "properties": {
+        "requestId": { "type": "string", "minLength": 1 },
+        "context": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "app": { "$ref": "#/definitions/appContext" },
+        "selection": { "$ref": "#/definitions/selection" }
+      },
+      "additionalProperties": false
+    },
+    "completeResponse": {
+      "type": "object",
+      "required": ["requestId", "completion", "model", "latencyMs"],
+      "properties": {
+        "requestId": { "type": "string", "minLength": 1 },
+        "completion": { "type": "string" },
+        "model": { "type": "string", "minLength": 1 },
+        "latencyMs": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "learnRequest": {
+      "type": "object",
+      "required": ["requestId", "event", "contextHash", "suggestion", "app"],
+      "properties": {
+        "requestId": { "type": "string", "minLength": 1 },
+        "event": { "enum": ["accepted", "rejected", "curated"] },
+        "contextHash": { "type": "string", "minLength": 16 },
+        "suggestion": { "type": "string", "maxLength": 2000 },
+        "app": { "$ref": "#/definitions/appContext" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

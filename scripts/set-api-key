@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/load-env"
+
+KEY="${AI_GATEWAY_API_KEY:-}"
+
+if [[ -z "$KEY" ]]; then
+  read -r -s -p "AI_GATEWAY_API_KEY: " KEY
+  echo
+fi
+
+if [[ -z "$KEY" ]]; then
+  echo "No key provided." >&2
+  exit 1
+fi
+
+security add-generic-password \
+  -a "AI_GATEWAY_API_KEY" \
+  -s "GhostComplete" \
+  -w "$KEY" \
+  -U >/dev/null
+
+echo "Stored AI_GATEWAY_API_KEY in Keychain for GhostComplete."

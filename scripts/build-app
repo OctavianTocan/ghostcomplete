@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/load-env"
+APP_NAME="GhostComplete"
+APP_DIR="$ROOT/build/$APP_NAME.app"
+CONTENTS="$APP_DIR/Contents"
+RESOURCES="$CONTENTS/Resources"
+MACOS="$CONTENTS/MacOS"
+
+bun install --cwd "$ROOT/ai-service" --frozen-lockfile
+bun run --cwd "$ROOT/ai-service" build
+
+swift build --package-path "$ROOT/mac" -c release
+BIN_DIR="$(swift build --package-path "$ROOT/mac" -c release --show-bin-path)"
+
+rm -rf "$APP_DIR"
+mkdir -p "$MACOS" "$RESOURCES/ai-service"
+
+cp "$BIN_DIR/$APP_NAME" "$MACOS/$APP_NAME"
+cp "$ROOT/mac/Info.plist" "$CONTENTS/Info.plist"
+cp -R "$ROOT/ai-service/dist" "$RESOURCES/ai-service/dist"
+cp "$ROOT/ai-service/package.json" "$RESOURCES/ai-service/package.json"
+
+codesign --force --deep --sign - "$APP_DIR"
+
+echo "$APP_DIR"

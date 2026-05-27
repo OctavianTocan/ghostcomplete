@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/load-env"
+
+if [[ "${1:-}" == "--delete-data" ]]; then
+  DATA_DIR="$HOME/Library/Application Support/GhostComplete"
+  rm -f "$DATA_DIR/learning.sqlite" "$DATA_DIR/learning.sqlite-wal" "$DATA_DIR/learning.sqlite-shm" "$DATA_DIR/profile.json"
+  echo "Deleted GhostComplete learned data from $DATA_DIR"
+fi
+
+tccutil reset Accessibility dev.octavian.GhostComplete || true
+tccutil reset ListenEvent dev.octavian.GhostComplete || true
+
+echo "Reset GhostComplete Accessibility/Input Monitoring permissions."

@@ -1,0 +1,13 @@
+node_modules/
+ai-service/node_modules/
+ai-service/dist/
+ai-service/coverage/
+mac/.build/
+build/
+
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store

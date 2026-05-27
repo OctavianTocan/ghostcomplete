@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/load-env"
+APP_PATH="$("$ROOT/scripts/build-app" | tail -n 1)"
+
+rm -rf "/Applications/GhostComplete.app"
+cp -R "$APP_PATH" "/Applications/GhostComplete.app"
+codesign --force --deep --sign - "/Applications/GhostComplete.app"
+
+if [[ -n "${AI_GATEWAY_API_KEY:-}" ]]; then
+  security add-generic-password \
+    -a "AI_GATEWAY_API_KEY" \
+    -s "GhostComplete" \
+    -w "$AI_GATEWAY_API_KEY" \
+    -U >/dev/null
+  echo "Stored AI_GATEWAY_API_KEY in Keychain for GhostComplete."
+else
+  echo "AI_GATEWAY_API_KEY was not set; run scripts/set-api-key before using live completions."
+fi
+
+echo "Installed /Applications/GhostComplete.app"
+echo "Launch it, then grant Accessibility and Input Monitoring permissions when macOS prompts."

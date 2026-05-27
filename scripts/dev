@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/load-env"
+
+bun install --cwd "$ROOT/ai-service"
+bun run --cwd "$ROOT/ai-service" build
+
+GHOSTCOMPLETE_SIDECAR_PATH="$ROOT/ai-service/dist/index.js" \
+swift run --package-path "$ROOT/mac" GhostComplete
