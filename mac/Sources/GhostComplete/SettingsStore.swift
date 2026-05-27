@@ -7,6 +7,7 @@ final class SettingsStore {
     let logsURL: URL
     let appLogURL: URL
     let sidecarSettingsURL: URL
+    let preferencesURL: URL
 
     var denylistedBundleIds: Set<String> = [
         "com.apple.keychainaccess",
@@ -32,6 +33,7 @@ final class SettingsStore {
         logsURL = base.appendingPathComponent("logs", isDirectory: true)
         appLogURL = logsURL.appendingPathComponent("app.jsonl")
         sidecarSettingsURL = base.appendingPathComponent("sidecar-settings.json")
+        preferencesURL = base.appendingPathComponent("preferences.json")
     }
 
     func ensureApplicationSupport() throws {
@@ -39,6 +41,9 @@ final class SettingsStore {
         try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: profileURL.path) {
             try writeDefaultProfile()
+        }
+        if !FileManager.default.fileExists(atPath: preferencesURL.path) {
+            try savePreferences(.default)
         }
     }
 
@@ -60,6 +65,21 @@ final class SettingsStore {
             try FileManager.default.removeItem(at: profileURL)
         }
         try writeDefaultProfile()
+    }
+
+    func loadPreferences() -> AutocompletePreferences {
+        guard let data = try? Data(contentsOf: preferencesURL),
+              let preferences = try? JSONDecoder().decode(AutocompletePreferences.self, from: data)
+        else {
+            return .default
+        }
+        return preferences.sanitized()
+    }
+
+    func savePreferences(_ preferences: AutocompletePreferences) throws {
+        let data = try JSONEncoder.pretty.encode(preferences.sanitized())
+        try data.write(to: preferencesURL, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: preferencesURL.path)
     }
 }
 

@@ -184,14 +184,14 @@ final class CompletionCoordinator {
             }
             cancelPendingCompletion(reason: "typing")
             dismissSuggestion()
-            scheduleCompletion()
+            scheduleCompletion(after: settings.loadPreferences().delay(for: keyCode))
         }
 
         return .pass
     }
 
-    private func scheduleCompletion() {
-        debouncer.schedule { [weak self] in
+    private func scheduleCompletion(after delay: TimeInterval) {
+        debouncer.schedule(after: delay) { [weak self] in
             self?.requestCompletion()
         }
     }
@@ -308,7 +308,8 @@ final class CompletionCoordinator {
                     text: text,
                     near: snapshot.caretRect,
                     anchorSource: snapshot.anchorSource,
-                    fallbackElementRect: snapshot.elementRect
+                    fallbackElementRect: snapshot.elementRect,
+                    preferences: settings.loadPreferences()
                 )
             } else {
                 TraceLogger.shared.info("completion_response_empty", fields: [
@@ -396,9 +397,17 @@ final class CompletionCoordinator {
             dismissSuggestion()
             return
         }
-        let text = overlay.text
-        guard !text.isEmpty else {
+        let fullText = overlay.text
+        guard !fullText.isEmpty else {
             TraceLogger.shared.warn("accept_without_text")
+            dismissSuggestion()
+            return
+        }
+
+        let split = GhostTextSegmenter.splitFirstWord(from: fullText)
+        let acceptedText = split.accepted
+        guard !acceptedText.isEmpty else {
+            TraceLogger.shared.warn("accept_without_text_segment")
             dismissSuggestion()
             return
         }
@@ -407,11 +416,37 @@ final class CompletionCoordinator {
         TraceLogger.shared.info("suggestion_accepted", fields: [
             "appBundleId": snapshot.app.bundleId,
             "appName": snapshot.app.name,
-            "suggestionLength": text.count,
-            "suggestionHash": text.ghostCompleteSHA256
+            "suggestionLength": acceptedText.count,
+            "suggestionHash": acceptedText.ghostCompleteSHA256,
+            "remainingLength": split.remaining.count
         ])
-        insertion.insert(text, into: snapshot.app, settings: settings)
-        sidecar.learnAccepted(snapshot: snapshot, requestId: latestRequestId ?? UUID().uuidString, suggestion: text)
+        insertion.insert(acceptedText, into: snapshot.app, settings: settings)
+        sidecar.learnAccepted(snapshot: snapshot, requestId: latestRequestId ?? UUID().uuidString, suggestion: acceptedText)
+
+        let remainingVisibleText = split.remaining.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !remainingVisibleText.isEmpty else {
+            activeSnapshot = nil
+            return
+        }
+
+        let advancedSnapshot = snapshotAfterAccepting(snapshot, acceptedText: acceptedText)
+        activeSnapshot = advancedSnapshot
+        overlay.show(
+            text: split.remaining,
+            near: advancedSnapshot.caretRect,
+            anchorSource: advancedSnapshot.anchorSource,
+            fallbackElementRect: advancedSnapshot.elementRect,
+            preferences: settings.loadPreferences()
+        )
+        updateCompletionStatus(
+            label: "Partial accept",
+            isHealthy: true,
+            detail: "Inserted one word and kept the remaining ghost text visible."
+        )
+        TraceLogger.shared.info("suggestion_partially_remaining", fields: [
+            "remainingLength": split.remaining.count,
+            "remainingHash": split.remaining.ghostCompleteSHA256
+        ])
     }
 
     private func dismissSuggestion() {
@@ -420,5 +455,28 @@ final class CompletionCoordinator {
         }
         debouncer.cancel()
         overlay.hide()
+    }
+
+    private func snapshotAfterAccepting(_ snapshot: FocusSnapshot, acceptedText: String) -> FocusSnapshot {
+        FocusSnapshot(
+            context: snapshot.context + acceptedText,
+            caretRect: advancedCaretRect(snapshot.caretRect, acceptedText: acceptedText),
+            elementRect: snapshot.elementRect,
+            anchorSource: snapshot.anchorSource,
+            app: snapshot.app,
+            selection: snapshot.selection.map {
+                SelectionRange(location: $0.location + acceptedText.utf16.count, length: 0)
+            }
+        )
+    }
+
+    private func advancedCaretRect(_ caretRect: CGRect?, acceptedText: String) -> CGRect? {
+        guard let caretRect else {
+            return nil
+        }
+        let fontSize = min(max(caretRect.height * 0.78, 12), 18)
+        let font = NSFont.systemFont(ofSize: fontSize)
+        let width = (acceptedText as NSString).size(withAttributes: [.font: font]).width
+        return caretRect.offsetBy(dx: width, dy: 0)
     }
 }

@@ -64,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "GhostComplete", action: nil, keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Open Profile", action: #selector(openProfile), keyEquivalent: "p"))
-        menu.addItem(NSMenuItem(title: "Show Status", action: #selector(showStatus), keyEquivalent: "s"))
+        menu.addItem(NSMenuItem(title: "Show Status, Logs, and Settings", action: #selector(showStatus), keyEquivalent: "s"))
         menu.addItem(NSMenuItem(title: "Delete Learned Data", action: #selector(deleteLearnedData), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Restart Sidecar", action: #selector(restartSidecar), keyEquivalent: "r"))

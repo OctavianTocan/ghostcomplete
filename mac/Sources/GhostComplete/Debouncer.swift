@@ -11,6 +11,10 @@ final class Debouncer {
     }
 
     func schedule(_ action: @escaping () -> Void) {
+        schedule(after: delay, action)
+    }
+
+    func schedule(after delay: TimeInterval, _ action: @escaping () -> Void) {
         item?.cancel()
         let next = DispatchWorkItem(block: action)
         item = next

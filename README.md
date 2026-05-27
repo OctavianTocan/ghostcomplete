@@ -2,7 +2,7 @@
 
 Native macOS inline autocomplete with a local Bun/TypeScript AI sidecar.
 
-GhostComplete watches the focused editable field through macOS Accessibility, asks a localhost-only AI sidecar for a short continuation, renders it as ghost text near the caret, and inserts it when you press Tab. Esc dismisses the suggestion.
+GhostComplete watches the focused editable field through macOS Accessibility, asks a localhost-only AI sidecar for a short continuation, renders it as ghost text near the caret, and inserts one ghost word each time you press Tab. Esc dismisses the suggestion.
 
 The app is split intentionally:
 
@@ -28,7 +28,7 @@ bun run try
 
 `bun run try` builds the Bun sidecar, builds the macOS app, signs it with the first available local code-signing identity, installs it to `/Applications/GhostComplete.app`, asks the signed app to store `AI_GATEWAY_API_KEY` from `.env.local` or `.env` in Keychain, and launches the app. If no signing identity exists, it falls back to ad-hoc signing and macOS may require permissions again after each rebuild.
 
-Grant Accessibility and Input Monitoring permissions when macOS prompts, then type in a supported text field. Tab accepts the ghost suggestion and Esc dismisses it.
+Grant Accessibility and Input Monitoring permissions when macOS prompts, then type in a supported text field. Tab accepts one ghost word at a time and Esc dismisses the suggestion.
 
 If GhostComplete is already running, the installer quits it before replacing `/Applications/GhostComplete.app`. `bun run try` then relaunches the fresh build. `bun run install:local` leaves it stopped after the replacement, so launch it manually when you are ready.
 
@@ -60,11 +60,21 @@ The Swift app uses `AI_GATEWAY_API_KEY` from its launch environment first and al
 
 Seed Keychain with `bun run set-key`, or run `bun run install:local` after setting `AI_GATEWAY_API_KEY` in `.env.local`. Both commands use the signed GhostComplete app to write the Keychain item; they do not call the macOS `security` CLI to edit Keychain access lists.
 
+Autocomplete UI preferences live in:
+
+```text
+~/Library/Application Support/GhostComplete/preferences.json
+```
+
+You can tune debounce timing, ghost text reveal animation, reveal speed, and overlay X/Y nudges from the menu bar item under `Show Status, Logs, and Settings`.
+
 ## AI Gateway
 
 The sidecar uses Vercel AI SDK `streamText` through AI Gateway and then returns the final continuation to the Swift app over the local JSON protocol. Stream traces include chunk count, first-token latency, stream latency, finish reason, provider response metadata, warnings, and token usage.
 
-Autocomplete requests are trailing-debounced on the Mac side. GhostComplete waits for 300 ms of idle typing, skips prefixes shorter than 3 visible characters, sends at most the last 4000 characters before the caret, suppresses unchanged duplicate contexts, and cancels in-flight requests when newer typing arrives. Suggestions are capped at 80 characters.
+Autocomplete requests are trailing-debounced on the Mac side. GhostComplete defaults to 120 ms of idle typing, uses a shorter boundary-key delay for spaces and punctuation, skips prefixes shorter than 3 visible characters, sends at most the last 4000 characters before the caret, suppresses unchanged duplicate contexts, and cancels in-flight requests when newer typing arrives. Suggestions are capped at 80 characters.
+
+Accepted text is incremental: if the overlay shows multiple words, each Tab press inserts only the next word and leaves the remaining ghost text visible.
 
 Timeouts and cancellations are soft failures: the sidecar returns an empty completion and the app shows no overlay. Provider access and rate-limit errors are still logged and surfaced in status so they are diagnosable.
 
@@ -112,7 +122,7 @@ GhostComplete writes structured JSONL traces to:
 ~/Library/Application Support/GhostComplete/logs/sidecar.jsonl
 ```
 
-Use:
+Use the menu bar item `Show Status, Logs, and Settings` to browse app logs, sidecar logs, tuning controls, learned words, profile facts, and recent accepted suggestions. From the terminal, use:
 
 ```sh
 bun run logs

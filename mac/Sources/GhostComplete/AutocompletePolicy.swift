@@ -21,6 +21,10 @@ enum AutocompletePolicy {
         115, 116, 117, 119, 121, 123, 124, 125, 126
     ])
 
+    private static let fastBoundaryKeyCodes = Set<CGKeyCode>([
+        24, 27, 30, 33, 39, 41, 42, 43, 47, 49, 65, 67, 75, 78, 85
+    ])
+
     static func shouldScheduleCompletion(keyCode: CGKeyCode, flags: CGEventFlags) -> Bool {
         if flags.contains(.maskCommand) || flags.contains(.maskControl) {
             return false
@@ -29,6 +33,10 @@ enum AutocompletePolicy {
             return false
         }
         return printableKeyCodes.contains(keyCode)
+    }
+
+    static func isFastBoundaryKey(_ keyCode: CGKeyCode) -> Bool {
+        fastBoundaryKeyCodes.contains(keyCode)
     }
 
     static func hasEnoughVisiblePrefix(_ context: String) -> Bool {
