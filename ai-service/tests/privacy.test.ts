@@ -14,4 +14,13 @@ describe("privacy helpers", () => {
   it("rejects pure repeats", () => {
     expect(sanitizeContinuation("I want to", "I want to")).toBe("");
   });
+
+  it("strips provider labels", () => {
+    expect(sanitizeContinuation("I want to", "Continuation only: finish this")).toBe("finish this");
+  });
+
+  it("rejects single characters and standalone punctuation", () => {
+    expect(sanitizeContinuation("I want to", ".")).toBe("");
+    expect(sanitizeContinuation("I want to", "a")).toBe("");
+  });
 });

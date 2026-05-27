@@ -4,6 +4,7 @@ enum SidecarError: Error, LocalizedError {
     case missingScript
     case missingPort
     case badResponse
+    case requestFailed(status: Int, message: String?)
     case launchFailed(String)
 
     var errorDescription: String? {
@@ -14,6 +15,11 @@ enum SidecarError: Error, LocalizedError {
             return "Sidecar is not ready yet."
         case .badResponse:
             return "Sidecar returned an invalid response."
+        case .requestFailed(let status, let message):
+            if let message, !message.isEmpty {
+                return message
+            }
+            return "Sidecar request failed with HTTP \(status)."
         case .launchFailed(let message):
             return message
         }
@@ -180,14 +186,17 @@ final class SidecarClient {
                   let data
             else {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let errorBody = data.flatMap { try? JSONDecoder().decode(SidecarErrorResponse.self, from: $0) }
                 Task { @MainActor in
                     TraceLogger.shared.error("sidecar_post_bad_response", fields: [
                         "path": path,
                         "status": status,
+                        "sidecarError": errorBody?.error ?? "",
+                        "message": errorBody?.message ?? "",
                         "latencyMs": Int(Date().timeIntervalSince(startedAt) * 1000)
                     ])
                 }
-                completion(.failure(SidecarError.badResponse))
+                completion(.failure(SidecarError.requestFailed(status: status, message: errorBody?.message)))
                 return
             }
             do {
@@ -284,6 +293,11 @@ final class SidecarClient {
 
 private struct LearnResponse: Decodable, Sendable {
     let ok: Bool
+}
+
+private struct SidecarErrorResponse: Decodable, Sendable {
+    let error: String
+    let message: String?
 }
 
 private struct SidecarCommand {

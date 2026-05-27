@@ -40,6 +40,18 @@ struct FocusSnapshot: Sendable {
     let selection: SelectionRange?
 }
 
+struct CompletionStatusSnapshot: Equatable, Sendable {
+    let label: String
+    let isHealthy: Bool?
+    let detail: String?
+
+    static let waiting = CompletionStatusSnapshot(
+        label: "Waiting for typing",
+        isHealthy: nil,
+        detail: nil
+    )
+}
+
 struct Profile: Codable, Equatable, Sendable {
     var name: String
     var role: String

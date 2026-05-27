@@ -21,6 +21,8 @@ describe("prompt construction", () => {
     );
 
     expect(prompt.system).toContain("Return only the next characters");
+    expect(prompt.system).toContain("2 to 12 words");
+    expect(prompt.system).toContain("Do not return a single character");
     expect(prompt.prompt).toContain("Octavian");
     expect(prompt.prompt).toContain("Never say");
     expect(prompt.prompt).toContain("ship the smallest useful version");

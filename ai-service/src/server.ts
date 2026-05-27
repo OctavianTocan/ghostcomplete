@@ -171,15 +171,15 @@ export function createServer(
           return json({ error: "bad_request", message: error.message }, 400);
         }
 
-        const code = error instanceof Error && error.name === "AbortError" ? "timeout" : "sidecar_error";
+        const classified = classifyRequestError(error);
         logger.error("request_failed", {
           path: url.pathname,
           requestId: requestId ?? null,
-          code,
-          message: error instanceof Error ? error.message : String(error),
+          code: classified.code,
+          message: classified.message,
           latencyMs: Math.round(performance.now() - requestStarted),
         });
-        return json({ error: code }, code === "timeout" ? 504 : 500);
+        return json({ error: classified.code, message: classified.message }, classified.status);
       }
     }
   });
@@ -191,6 +191,27 @@ export function createServer(
   });
 
   return server;
+}
+
+function classifyRequestError(error: unknown): { code: string; status: number; message: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+
+  if (error instanceof Error && error.name === "AbortError") {
+    return { code: "timeout", status: 504, message };
+  }
+  if (lower.includes("rate-limit") || lower.includes("rate limit") || lower.includes("rate_limited")) {
+    return { code: "rate_limited", status: 429, message };
+  }
+  if (
+    lower.includes("restricted model") ||
+    lower.includes("access to this model") ||
+    lower.includes("model access")
+  ) {
+    return { code: "model_access_denied", status: 403, message };
+  }
+
+  return { code: "sidecar_error", status: 500, message };
 }
 
 function completionTraceFields(result: CompletionResult): Record<string, unknown> {

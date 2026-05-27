@@ -14,6 +14,8 @@ final class CompletionCoordinator {
     private var latestRequestId: String?
     private var activeSnapshot: FocusSnapshot?
     private var sidecarStartInFlight = false
+    private var completionBackoffUntil: Date?
+    var onCompletionStatus: ((CompletionStatusSnapshot) -> Void)?
 
     init(
         settings: SettingsStore,
@@ -178,18 +180,34 @@ final class CompletionCoordinator {
     }
 
     private func requestCompletion() {
+        if let completionBackoffUntil, completionBackoffUntil > Date() {
+            let retryAfterMs = Int(completionBackoffUntil.timeIntervalSinceNow * 1000)
+            updateCompletionStatus(
+                label: "Backoff \(max(retryAfterMs / 1000, 1))s",
+                isHealthy: false,
+                detail: "Waiting before retrying after the previous completion failure."
+            )
+            TraceLogger.shared.warn("completion_suppressed_by_backoff", fields: [
+                "retryAfterMs": retryAfterMs
+            ])
+            return
+        }
+
         guard sidecar.isReady else {
+            updateCompletionStatus(label: "Sidecar not ready", isHealthy: false, detail: nil)
             TraceLogger.shared.warn("completion_sidecar_not_ready")
             startSidecarAsync()
             return
         }
 
         guard let snapshot = reader.focusedSnapshot(settings: settings) else {
+            updateCompletionStatus(label: "No editable focus", isHealthy: nil, detail: nil)
             TraceLogger.shared.debug("completion_focus_snapshot_unavailable")
             return
         }
 
         guard snapshot.context.trimmingCharacters(in: .whitespacesAndNewlines).count >= 8 else {
+            updateCompletionStatus(label: "Waiting for more text", isHealthy: nil, detail: nil)
             TraceLogger.shared.debug("completion_context_too_short", fields: [
                 "contextLength": snapshot.context.count,
                 "appBundleId": snapshot.app.bundleId,
@@ -201,6 +219,7 @@ final class CompletionCoordinator {
         let requestId = UUID().uuidString
         latestRequestId = requestId
         activeSnapshot = snapshot
+        updateCompletionStatus(label: "Requesting", isHealthy: nil, detail: nil)
         TraceLogger.shared.info("completion_request_started", fields: [
             "requestId": requestId,
             "appBundleId": snapshot.app.bundleId,
@@ -228,7 +247,8 @@ final class CompletionCoordinator {
         switch result {
         case .success(let response):
             let text = response.completion
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let visibleText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if visibleText.count >= 2 {
                 TraceLogger.shared.info("completion_response_shown", fields: [
                     "requestId": requestId,
                     "model": response.model,
@@ -236,22 +256,66 @@ final class CompletionCoordinator {
                     "completionLength": text.count,
                     "completionHash": text.ghostCompleteSHA256
                 ])
+                updateCompletionStatus(
+                    label: "Shown (\(visibleText.count) chars)",
+                    isHealthy: true,
+                    detail: "Model \(response.model) returned an overlay suggestion."
+                )
                 overlay.show(text: text, near: snapshot.caretRect)
             } else {
                 TraceLogger.shared.info("completion_response_empty", fields: [
                     "requestId": requestId,
                     "model": response.model,
-                    "latencyMs": response.latencyMs
+                    "latencyMs": response.latencyMs,
+                    "completionLength": text.count,
+                    "visibleLength": visibleText.count,
+                    "completionHash": text.ghostCompleteSHA256
                 ])
+                updateCompletionStatus(
+                    label: "Empty suggestion",
+                    isHealthy: false,
+                    detail: "Model \(response.model) returned \(text.count) characters, \(visibleText.count) visible."
+                )
             }
+            completionBackoffUntil = nil
         case .failure(let error):
+            completionBackoffUntil = Date().addingTimeInterval(30)
+            let detail = error.localizedDescription
+            updateCompletionStatus(
+                label: friendlyFailureLabel(detail),
+                isHealthy: false,
+                detail: detail
+            )
             TraceLogger.shared.error("completion_request_failed", fields: [
                 "requestId": requestId,
-                "error": error.localizedDescription
+                "error": error.localizedDescription,
+                "backoffSeconds": 30
             ])
             NSLog("[GhostComplete] Completion failed: \(error.localizedDescription)")
-            sidecar.stop()
         }
+    }
+
+    private func updateCompletionStatus(label: String, isHealthy: Bool?, detail: String?) {
+        let status = CompletionStatusSnapshot(label: label, isHealthy: isHealthy, detail: detail)
+        TraceLogger.shared.debug("completion_status_updated", fields: [
+            "label": label,
+            "isHealthy": isHealthy.map(String.init(describing:)) ?? "unknown"
+        ])
+        onCompletionStatus?(status)
+    }
+
+    private func friendlyFailureLabel(_ message: String) -> String {
+        let lower = message.lowercased()
+        if lower.contains("rate-limit") || lower.contains("rate limit") || lower.contains("rate_limited") {
+            return "Rate limited"
+        }
+        if lower.contains("restricted model") || lower.contains("access to this model") || lower.contains("model access") {
+            return "Model blocked"
+        }
+        if lower.contains("timed out") || lower.contains("timeout") {
+            return "Timed out"
+        }
+        return "Failed"
     }
 
     private func acceptSuggestion() {

@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var permissionSnapshot: PermissionSnapshot?
     private var sidecarReady: Bool?
+    private var completionStatus = CompletionStatusSnapshot.waiting
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -29,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         configureMenu()
+        coordinator.onCompletionStatus = { [weak self] status in
+            self?.completionStatus = status
+            self?.updateSplash()
+        }
         permissions.onUpdate = { [weak self] snapshot in
             self?.permissionSnapshot = snapshot
             self?.updateSplash()
@@ -72,7 +77,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateSplash() {
         splash.update(
             permissionSnapshot: permissionSnapshot,
-            sidecarReady: sidecarReady
+            sidecarReady: sidecarReady,
+            completionStatus: completionStatus
         )
     }
 

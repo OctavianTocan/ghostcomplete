@@ -5,6 +5,7 @@ final class SplashWindowController: NSWindowController {
     private let accessibilityValue = NSTextField(labelWithString: "Checking")
     private let inputMonitoringValue = NSTextField(labelWithString: "Checking")
     private let sidecarValue = NSTextField(labelWithString: "Starting")
+    private let completionValue = NSTextField(labelWithString: CompletionStatusSnapshot.waiting.label)
     private let identityValue = NSTextField(labelWithString: "")
     private let logsURL: URL
     private var autoDismissWhenHealthy = true
@@ -47,7 +48,11 @@ final class SplashWindowController: NSWindowController {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func update(permissionSnapshot: PermissionSnapshot?, sidecarReady: Bool?) {
+    func update(
+        permissionSnapshot: PermissionSnapshot?,
+        sidecarReady: Bool?,
+        completionStatus: CompletionStatusSnapshot
+    ) {
         accessibilityValue.stringValue = accessibilityStatusText(permissionSnapshot?.accessibilityTrusted)
         accessibilityValue.textColor = statusColor(permissionSnapshot?.accessibilityTrusted)
 
@@ -56,6 +61,9 @@ final class SplashWindowController: NSWindowController {
 
         sidecarValue.stringValue = sidecarStatusText(sidecarReady)
         sidecarValue.textColor = statusColor(sidecarReady)
+        completionValue.stringValue = completionStatus.label
+        completionValue.toolTip = completionStatus.detail
+        completionValue.textColor = statusColor(completionStatus.isHealthy)
         identityValue.stringValue = permissionSnapshot?.identity.displayText ?? AppIdentity.current().displayText
 
         if permissionSnapshot?.accessibilityTrusted == true,
@@ -105,7 +113,8 @@ final class SplashWindowController: NSWindowController {
         let statusStack = NSStackView(views: [
             statusRow("Accessibility", accessibilityValue),
             statusRow("Input Monitoring", inputMonitoringValue),
-            statusRow("AI sidecar", sidecarValue)
+            statusRow("AI sidecar", sidecarValue),
+            statusRow("Last completion", completionValue)
         ])
         statusStack.orientation = .vertical
         statusStack.spacing = 8

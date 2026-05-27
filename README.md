@@ -51,7 +51,7 @@ Scripts source environment variables from `.env` and `.env.local` automatically,
 The sidecar reads:
 
 - `AI_GATEWAY_API_KEY` for Vercel AI Gateway auth.
-- `GHOSTCOMPLETE_MODEL` for the AI Gateway model string. Default: `morph/morph-v3-fast`.
+- `GHOSTCOMPLETE_MODEL` for the AI Gateway model string. Default: `google/gemini-2.0-flash-lite`.
 - `GHOSTCOMPLETE_PORT` for development. Production launch uses the bundled Bun sidecar.
 - `GHOSTCOMPLETE_LOG_DIR` to override the default JSONL trace directory.
 
@@ -63,7 +63,9 @@ Seed Keychain with `bun run set-key`, or run `bun run install:local` after setti
 
 The sidecar uses Vercel AI SDK `streamText` through AI Gateway and then returns the final continuation to the Swift app over the local JSON protocol. Stream traces include chunk count, first-token latency, stream latency, finish reason, provider response metadata, warnings, and token usage.
 
-`openai/gpt-5.4` works only when your Vercel AI Gateway account has access to that model. On free-tier Gateway accounts it can fail with a restricted-model error, so the local default uses `morph/morph-v3-fast`. Set `GHOSTCOMPLETE_MODEL=openai/gpt-5.4` in `.env.local` if your Gateway account supports it.
+`openai/gpt-5.4` works only when your Vercel AI Gateway account has access to that model. On free-tier Gateway accounts it can fail with a restricted-model error, so the local default uses `google/gemini-2.0-flash-lite`. Set `GHOSTCOMPLETE_MODEL=openai/gpt-5.4` in `.env.local` if your Gateway account supports it.
+
+Gateway free-tier accounts can still return rate-limit errors on otherwise valid models. When that happens GhostComplete backs off instead of spamming requests, the status window shows `Last completion: Rate limited`, and `sidecar.jsonl` records the Gateway error without raw typed text.
 
 To verify Gateway independently:
 
@@ -110,11 +112,11 @@ bun run logs
 bun run logs:tail
 ```
 
-The trace stream includes app launch, permission checks, sidecar launch, request lifecycle, stale responses, stream chunk counts, first-token latency, completion latency, AI SDK token usage, finish reasons, response metadata, insertion strategy, accepted suggestions, validation failures, model timeouts, and sidecar shutdown. Raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields.
+The trace stream includes app launch, permission checks, sidecar launch, request lifecycle, stale responses, stream chunk counts, first-token latency, completion latency, AI SDK token usage, finish reasons, response metadata, overlay coordinates, insertion strategy, accepted suggestions, validation failures, model access errors, Gateway rate limits, model timeouts, and sidecar shutdown. Raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields.
 
 ## Permissions And Keychain Prompts
 
-GhostComplete shows a status window on launch with Accessibility, Input Monitoring, sidecar state, and the exact bundle/path/signing requirement macOS is evaluating. If System Settings shows GhostComplete enabled but the app still reports `Not trusted by macOS` or `Event tap blocked`, remove all GhostComplete rows from Accessibility and Input Monitoring, add `/Applications/GhostComplete.app` again, then click `Retry Checks`. A full restart is not usually needed after granting permission.
+GhostComplete shows a status window on launch with Accessibility, Input Monitoring, sidecar state, last completion state, and the exact bundle/path/signing requirement macOS is evaluating. If System Settings shows GhostComplete enabled but the app still reports `Not trusted by macOS` or `Event tap blocked`, remove all GhostComplete rows from Accessibility and Input Monitoring, add `/Applications/GhostComplete.app` again, then click `Retry Checks`. A full restart is not usually needed after granting permission.
 
 Accessibility and Input Monitoring prompts are macOS privacy permissions for reading focused text fields and intercepting Tab/Esc. They are managed in System Settings.
 

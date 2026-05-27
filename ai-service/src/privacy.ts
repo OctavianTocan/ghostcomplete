@@ -11,6 +11,7 @@ export function hashContext(context: string): string {
 export function sanitizeContinuation(context: string, raw: string): string {
   let text = raw.replace(/\r/g, "").trimEnd();
   text = text.replace(/^["'`]+|["'`]+$/g, "");
+  text = text.replace(/^\s*(?:continuation(?:\s+only)?|completion|output|answer)\s*:\s*/i, "");
   text = text.split("\n\n")[0] ?? "";
 
   const trimmedLeft = text.trimStart();
@@ -25,6 +26,10 @@ export function sanitizeContinuation(context: string, raw: string): string {
   const normalizedContext = context.replace(/\s+/g, " ").trim().toLowerCase();
   const normalizedText = text.replace(/\s+/g, " ").trim().toLowerCase();
   if (!normalizedText || normalizedText === normalizedContext) {
+    return "";
+  }
+
+  if (normalizedText.length < 2 || /^[\p{P}\p{S}]+$/u.test(normalizedText)) {
     return "";
   }
 

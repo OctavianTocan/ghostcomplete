@@ -21,4 +21,6 @@ All notable changes to GhostComplete will be documented in this file.
 - Added root-level Bun scripts for one-command local install, launch, smoke testing, and reset workflows.
 - Added Swift and Bun unit/integration tests for skip rules, debounce behavior, insertion strategy, schema validation, prompts, privacy helpers, AI wrapper, and sidecar HTTP behavior.
 - Fixed Finder-launched app completions by persisting non-secret sidecar model settings from `.env.local` and passing them to the bundled sidecar.
+- Changed the default Gateway model to `google/gemini-2.0-flash-lite` because the previous `openai/gpt-5.4` default is restricted on free-tier Gateway accounts.
 - Changed the status window so launch health can auto-dismiss while manually opened status stays visible.
+- Added last-completion diagnostics, overlay coordinate traces, Gateway rate-limit classification, and filtering for one-character or punctuation-only suggestions.

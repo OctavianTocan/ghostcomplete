@@ -21,11 +21,12 @@ final class OverlayPanel {
             backing: .buffered,
             defer: false
         )
-        panel.level = .floating
+        panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.ignoresMouseEvents = true
         panel.hasShadow = false
+        panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
         label = NSTextField(frame: rect)
@@ -33,7 +34,7 @@ final class OverlayPanel {
         label.drawsBackground = false
         label.isEditable = false
         label.isSelectable = false
-        label.textColor = NSColor(calibratedWhite: 0.48, alpha: 0.58)
+        label.textColor = NSColor.labelColor.withAlphaComponent(0.46)
         label.font = NSFont.systemFont(ofSize: 14)
         panel.contentView?.addSubview(label)
     }
@@ -42,15 +43,28 @@ final class OverlayPanel {
         label.stringValue = text
         label.sizeToFit()
         let width = min(max(label.frame.width + 10, 80), 640)
+        let origin = clampedOrigin(CoordinateConverter.overlayOrigin(caretRect: rect, fallbackElementRect: nil), width: width)
         panel.setContentSize(NSSize(width: width, height: 24))
         label.frame = NSRect(x: 0, y: 0, width: width, height: 24)
-        panel.setFrameOrigin(clampedOrigin(CoordinateConverter.overlayOrigin(caretRect: rect, fallbackElementRect: nil), width: width))
-        panel.orderFront(nil)
+        panel.setFrameOrigin(origin)
+        panel.orderFrontRegardless()
+        TraceLogger.shared.info("overlay_shown", fields: [
+            "textLength": text.count,
+            "hasCaretRect": rect != nil,
+            "originX": Int(origin.x),
+            "originY": Int(origin.y),
+            "width": Int(width),
+            "level": Int(panel.level.rawValue)
+        ])
     }
 
     func hide() {
+        let wasVisible = panel.isVisible
         label.stringValue = ""
         panel.orderOut(nil)
+        if wasVisible {
+            TraceLogger.shared.debug("overlay_hidden")
+        }
     }
 
     private func clampedOrigin(_ origin: CGPoint, width: CGFloat) -> CGPoint {

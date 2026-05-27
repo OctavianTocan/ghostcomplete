@@ -121,13 +121,22 @@ async function collectStreamResult(
   let rawCompletion = "";
   let chunkCount = 0;
   let firstChunkLatencyMs: number | undefined;
+  const streamErrors: string[] = [];
 
-  for await (const chunk of result.textStream) {
-    if (firstChunkLatencyMs === undefined) {
-      firstChunkLatencyMs = Math.round(performance.now() - startedAt);
+  for await (const part of result.fullStream) {
+    if (part.type === "text-delta") {
+      if (firstChunkLatencyMs === undefined) {
+        firstChunkLatencyMs = Math.round(performance.now() - startedAt);
+      }
+      chunkCount += 1;
+      rawCompletion += part.text;
+    } else if (part.type === "error") {
+      streamErrors.push(errorMessage(part.error));
     }
-    chunkCount += 1;
-    rawCompletion += chunk;
+  }
+
+  if (streamErrors.length > 0) {
+    throw new Error(`AI stream failed: ${streamErrors.join("; ")}`);
   }
 
   const metadata = await collectMetadata(result);

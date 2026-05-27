@@ -43,7 +43,7 @@ export function loadConfig(): ServiceConfig {
     profilePath: process.env.GHOSTCOMPLETE_PROFILE ?? path.join(appSupportDir, "profile.json"),
     logDir,
     sidecarLogPath: path.join(logDir, "sidecar.jsonl"),
-    model: process.env.GHOSTCOMPLETE_MODEL ?? "morph/morph-v3-fast",
+    model: process.env.GHOSTCOMPLETE_MODEL ?? "google/gemini-2.0-flash-lite",
     token: process.env.GHOSTCOMPLETE_TOKEN ?? "",
     host: process.env.GHOSTCOMPLETE_HOST ?? "127.0.0.1",
     port: intFromEnv("GHOSTCOMPLETE_PORT", 50573),

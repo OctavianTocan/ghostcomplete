@@ -37,7 +37,10 @@ export function buildPrompt(request: CompleteRequest, profile: Profile, examples
       "Return only the next characters the user would type after the provided context.",
       "Do not repeat any part of the input context.",
       "Do not add quotation marks, markdown, explanations, labels, greetings, or alternatives.",
-      "Prefer a natural phrase or one short sentence. If unsure, return an empty string.",
+      "Prefer 2 to 12 words of natural continuation text, or one short sentence.",
+      "Start with a space if the next typed character would be a space.",
+      "Do not return a single character or standalone punctuation; return an empty string if that is all you can infer.",
+      "If unsure, return an empty string.",
       "Respect the user's profile and never-say preferences.",
     ].join(" "),
     prompt: [

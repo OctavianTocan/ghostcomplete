@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
@@ -11,7 +12,22 @@ import { LearningStore } from "../src/storage.js";
 
 const tmpDirs: string[] = [];
 
-function makeConfig(): ServiceConfig {
+async function freeLoopbackPort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close(() => reject(new Error("Could not allocate a test port")));
+        return;
+      }
+      server.close(() => resolve(address.port));
+    });
+  });
+}
+
+async function makeConfig(): Promise<ServiceConfig> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ghostcomplete-test-"));
   tmpDirs.push(dir);
   return {
@@ -23,7 +39,7 @@ function makeConfig(): ServiceConfig {
     model: "test/model",
     token: "test-token",
     host: "127.0.0.1",
-    port: 0,
+    port: await freeLoopbackPort(),
     timeoutMs: 1000,
     maxOutputTokens: 24,
     temperature: 0.1,
@@ -38,7 +54,7 @@ afterEach(() => {
 
 describe("sidecar server", () => {
   it("returns deterministic completions from a fake engine", async () => {
-    const config = makeConfig();
+    const config = await makeConfig();
     const store = new LearningStore(config.databasePath);
     const server = createServer(config, new FakeCompletionEngine(" done"), store);
 
@@ -65,7 +81,7 @@ describe("sidecar server", () => {
   });
 
   it("rejects missing tokens", async () => {
-    const config = makeConfig();
+    const config = await makeConfig();
     const store = new LearningStore(config.databasePath);
     const server = createServer(config, new FakeCompletionEngine(" done"), store);
 
@@ -79,7 +95,7 @@ describe("sidecar server", () => {
   });
 
   it("logs AI SDK stream metadata and token usage", async () => {
-    const config = makeConfig();
+    const config = await makeConfig();
     const store = new LearningStore(config.databasePath);
     const events: Array<{ event: string; fields: Record<string, unknown> }> = [];
     const logger: TraceLogger = {
@@ -143,7 +159,7 @@ describe("sidecar server", () => {
   });
 
   it("logs AI SDK metadata collection failures without failing completions", async () => {
-    const config = makeConfig();
+    const config = await makeConfig();
     const store = new LearningStore(config.databasePath);
     const events: Array<{ event: string; fields: Record<string, unknown> }> = [];
     const logger: TraceLogger = {
@@ -188,6 +204,40 @@ describe("sidecar server", () => {
       });
       const successEvent = events.find((entry) => entry.event === "completion_request_succeeded");
       expect(successEvent?.fields).toMatchObject({ metadataFailureCount: 1 });
+    } finally {
+      server.stop();
+      store.close();
+    }
+  });
+
+  it("classifies Gateway rate limits for the app", async () => {
+    const config = await makeConfig();
+    const store = new LearningStore(config.databasePath);
+    const engine: CompletionEngine = {
+      complete: async () => {
+        throw new Error("AI stream failed: Free tier requests on this model are rate-limited.");
+      },
+    };
+    const server = createServer(config, engine, store);
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/complete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer test-token",
+        },
+        body: JSON.stringify({
+          requestId: "rate-limit-test",
+          context: "Nearly finished",
+          app: { bundleId: "com.apple.TextEdit", name: "TextEdit" },
+        }),
+      });
+
+      expect(response.status).toBe(429);
+      const body = await response.json() as { error: string; message: string };
+      expect(body.error).toBe("rate_limited");
+      expect(body.message).toContain("rate-limited");
     } finally {
       server.stop();
       store.close();
