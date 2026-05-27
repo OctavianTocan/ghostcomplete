@@ -30,6 +30,8 @@ final class AutocompletePolicyTests: XCTestCase {
         let snapshot = FocusSnapshot(
             context: "hello",
             caretRect: nil,
+            elementRect: nil,
+            anchorSource: "default",
             app: AppContext(bundleId: "com.apple.TextEdit", name: "TextEdit"),
             selection: SelectionRange(location: 5, length: 0)
         )

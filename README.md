@@ -68,6 +68,8 @@ Autocomplete requests are trailing-debounced on the Mac side. GhostComplete wait
 
 Timeouts and cancellations are soft failures: the sidecar returns an empty completion and the app shows no overlay. Provider access and rate-limit errors are still logged and surfaced in status so they are diagnosable.
 
+Overlay anchoring is driven by Accessibility caret bounds. For browser, Electron, and terminal-style fields, GhostComplete derives the caret from the previous character's bounds when zero-length caret bounds are unreliable. If the app does not expose usable caret bounds, GhostComplete estimates the caret within the focused element before falling back to the element bounds. Overlay traces record the anchor source and unclamped/clamped coordinates so bad placement can be diagnosed without logging raw typed text.
+
 `openai/gpt-5.4` works only when your Vercel AI Gateway account has access to that model. On free-tier Gateway accounts it can fail with a restricted-model error, so the local default uses `google/gemini-2.0-flash-lite`. Set `GHOSTCOMPLETE_MODEL=openai/gpt-5.4` in `.env.local` if your Gateway account supports it.
 
 Gateway free-tier accounts can still return rate-limit errors on otherwise valid models. When that happens GhostComplete backs off instead of spamming requests, the status window shows `Last completion: Rate limited`, and `sidecar.jsonl` records the Gateway error without raw typed text.
@@ -117,7 +119,7 @@ bun run logs
 bun run logs:tail
 ```
 
-The trace stream includes app launch, permission checks, sidecar launch, debounce suppression, duplicate-context suppression, request cancellation, request lifecycle, stale responses, stream chunk counts, first-token latency, completion latency, AI SDK token usage, finish reasons, response metadata, overlay coordinates, insertion strategy, accepted suggestions, validation failures, model access errors, Gateway rate limits, soft model timeouts, and sidecar shutdown. Raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields.
+The trace stream includes app launch, permission checks, sidecar launch, debounce suppression, duplicate-context suppression, request cancellation, request lifecycle, focus-snapshot skip reasons, stale responses, stream chunk counts, first-token latency, completion latency, AI SDK token usage, finish reasons, response metadata, overlay anchor source and coordinates, insertion strategy, accepted suggestions, validation failures, model access errors, Gateway rate limits, soft model timeouts, and sidecar shutdown. Raw typed context is not logged; trace records use lengths and SHA-256 hashes for text-bearing fields.
 
 ## Permissions And Keychain Prompts
 

@@ -25,3 +25,5 @@ All notable changes to GhostComplete will be documented in this file.
 - Changed the status window so launch health can auto-dismiss while manually opened status stays visible.
 - Added last-completion diagnostics, overlay coordinate traces, Gateway rate-limit classification, and filtering for one-character or punctuation-only suggestions.
 - Changed autocomplete requests to use a 300 ms trailing debounce, 3-character prefix gate, 4000-character prefix cap, duplicate-context suppression, cancellable in-flight requests, 80-character suggestion cap, and soft empty completions for timeout/cancel.
+- Improved overlay anchoring for browser, Electron, and terminal-style fields by deriving the caret from previous-character AX bounds, estimating a caret inside the focused element when caret bounds are unavailable, keeping element fallback bounds separate, and logging unclamped/clamped overlay coordinates without per-key noise.
+- Fixed canceled AI streams being logged as successful empty completions with unavailable metadata; cancellation now produces the intended soft-empty trace.

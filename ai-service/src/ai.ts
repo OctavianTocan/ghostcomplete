@@ -85,6 +85,7 @@ export class VercelAICompletionEngine implements CompletionEngine {
 
   async complete(context: string, prompt: PromptParts, signal?: AbortSignal): Promise<CompletionResult> {
     const startedAt = performance.now();
+    const abortSignal = timeoutSignal(this.config.timeoutMs, signal);
     const result = streamText({
       reasoning: AUTOCOMPLETE_REASONING,
       model: gateway(this.config.model),
@@ -95,10 +96,10 @@ export class VercelAICompletionEngine implements CompletionEngine {
       stopSequences: AUTOCOMPLETE_STOP_SEQUENCES,
       providerOptions: AUTOCOMPLETE_PROVIDER_OPTIONS,
       maxRetries: 0,
-      abortSignal: timeoutSignal(this.config.timeoutMs, signal),
+      abortSignal,
     } as StreamTextOptions);
 
-    return collectStreamResult(context, result, startedAt);
+    return collectStreamResult(context, result, startedAt, abortSignal);
   }
 }
 
@@ -110,6 +111,7 @@ export class ModelCompletionEngine implements CompletionEngine {
 
   async complete(context: string, prompt: PromptParts, signal?: AbortSignal): Promise<CompletionResult> {
     const startedAt = performance.now();
+    const abortSignal = timeoutSignal(this.config.timeoutMs, signal);
     const result = streamText({
       reasoning: AUTOCOMPLETE_REASONING,
       model: this.model,
@@ -120,9 +122,9 @@ export class ModelCompletionEngine implements CompletionEngine {
       stopSequences: AUTOCOMPLETE_STOP_SEQUENCES,
       providerOptions: AUTOCOMPLETE_PROVIDER_OPTIONS,
       maxRetries: 0,
-      abortSignal: timeoutSignal(this.config.timeoutMs, signal),
+      abortSignal,
     } as StreamTextOptions);
-    return collectStreamResult(context, result, startedAt);
+    return collectStreamResult(context, result, startedAt, abortSignal);
   }
 }
 
@@ -130,13 +132,16 @@ async function collectStreamResult(
   context: string,
   result: ReturnType<typeof streamText>,
   startedAt: number,
+  signal: AbortSignal,
 ): Promise<CompletionResult> {
   let rawCompletion = "";
   let chunkCount = 0;
   let firstChunkLatencyMs: number | undefined;
   const streamErrors: string[] = [];
 
+  throwIfAborted(signal);
   for await (const part of result.fullStream) {
+    throwIfAborted(signal);
     if (part.type === "text-delta") {
       if (firstChunkLatencyMs === undefined) {
         firstChunkLatencyMs = Math.round(performance.now() - startedAt);
@@ -152,6 +157,7 @@ async function collectStreamResult(
     throw new Error(`AI stream failed: ${streamErrors.join("; ")}`);
   }
 
+  throwIfAborted(signal);
   const metadata = await collectMetadata(result);
   const response = metadata.values.response as Awaited<ReturnType<typeof streamText>["response"]> | undefined;
 
@@ -215,6 +221,19 @@ async function collectMetadata(result: ReturnType<typeof streamText>): Promise<{
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (!signal.aborted) {
+    return;
+  }
+  const reason = signal.reason;
+  if (reason instanceof Error) {
+    throw reason;
+  }
+  const error = new Error(reason ? String(reason) : "The autocomplete request was aborted.");
+  error.name = "AbortError";
+  throw error;
 }
 
 function omitResponseMessages(

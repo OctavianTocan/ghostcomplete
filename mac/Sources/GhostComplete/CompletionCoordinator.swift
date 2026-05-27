@@ -140,13 +140,6 @@ final class CompletionCoordinator {
     }
 
     func handleKey(_ keyCode: CGKeyCode, flags: CGEventFlags) -> KeyDecision {
-        TraceLogger.shared.debug("key_down", fields: [
-            "keyCode": Int(keyCode),
-            "hasCommand": flags.contains(.maskCommand),
-            "hasControl": flags.contains(.maskControl),
-            "overlayVisible": overlay.isVisible
-        ])
-
         if flags.contains(.maskCommand) || flags.contains(.maskControl) {
             cancelPendingCompletion(reason: "shortcut")
             dismissSuggestion()
@@ -172,7 +165,10 @@ final class CompletionCoordinator {
             }
             return .pass
         case 36, 51, 117, 123, 124, 125, 126:
-            TraceLogger.shared.debug("key_navigation_or_edit", fields: ["keyCode": Int(keyCode)])
+            TraceLogger.shared.debug("completion_debounce_suppressed", fields: [
+                "reason": "navigation_or_edit",
+                "keyCode": Int(keyCode)
+            ])
             cancelPendingCompletion(reason: "navigation_or_edit")
             dismissSuggestion()
             return .pass
@@ -195,7 +191,6 @@ final class CompletionCoordinator {
     }
 
     private func scheduleCompletion() {
-        TraceLogger.shared.debug("completion_debounce_scheduled")
         debouncer.schedule { [weak self] in
             self?.requestCompletion()
         }
@@ -262,7 +257,15 @@ final class CompletionCoordinator {
             "appName": snapshot.app.name,
             "contextLength": snapshot.context.count,
             "contextHash": snapshot.context.ghostCompleteSHA256,
+            "anchorSource": snapshot.anchorSource,
             "hasCaretRect": snapshot.caretRect != nil,
+            "hasElementRect": snapshot.elementRect != nil,
+            "caretX": snapshot.caretRect.map { Int($0.origin.x) } ?? -1,
+            "caretY": snapshot.caretRect.map { Int($0.origin.y) } ?? -1,
+            "caretHeight": snapshot.caretRect.map { Int($0.height) } ?? -1,
+            "elementX": snapshot.elementRect.map { Int($0.origin.x) } ?? -1,
+            "elementY": snapshot.elementRect.map { Int($0.origin.y) } ?? -1,
+            "elementHeight": snapshot.elementRect.map { Int($0.height) } ?? -1,
             "selectionLocation": snapshot.selection?.location ?? -1,
             "selectionLength": snapshot.selection?.length ?? -1
         ])
@@ -301,7 +304,12 @@ final class CompletionCoordinator {
                     isHealthy: true,
                     detail: "Model \(response.model) returned an overlay suggestion."
                 )
-                overlay.show(text: text, near: snapshot.caretRect)
+                overlay.show(
+                    text: text,
+                    near: snapshot.caretRect,
+                    anchorSource: snapshot.anchorSource,
+                    fallbackElementRect: snapshot.elementRect
+                )
             } else {
                 TraceLogger.shared.info("completion_response_empty", fields: [
                     "requestId": requestId,
@@ -407,7 +415,9 @@ final class CompletionCoordinator {
     }
 
     private func dismissSuggestion() {
-        TraceLogger.shared.debug("suggestion_dismissed", fields: ["overlayVisible": overlay.isVisible])
+        if overlay.isVisible {
+            TraceLogger.shared.debug("suggestion_dismissed")
+        }
         debouncer.cancel()
         overlay.hide()
     }

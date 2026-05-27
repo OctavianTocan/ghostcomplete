@@ -36,6 +36,8 @@ struct LearnRequest: Codable, Equatable, Sendable {
 struct FocusSnapshot: Sendable {
     let context: String
     let caretRect: CGRect?
+    let elementRect: CGRect?
+    let anchorSource: String
     let app: AppContext
     let selection: SelectionRange?
 }

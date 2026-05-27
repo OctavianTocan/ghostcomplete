@@ -39,21 +39,33 @@ final class OverlayPanel {
         panel.contentView?.addSubview(label)
     }
 
-    func show(text: String, near rect: CGRect?) {
+    func show(text: String, near caretRect: CGRect?, anchorSource: String, fallbackElementRect: CGRect?) {
         label.stringValue = text
+        label.font = NSFont.systemFont(ofSize: fontSize(for: caretRect))
         label.sizeToFit()
+        let height = panelHeight(for: caretRect)
         let width = min(max(label.frame.width + 10, 80), 640)
-        let origin = clampedOrigin(CoordinateConverter.overlayOrigin(caretRect: rect, fallbackElementRect: nil), width: width)
-        panel.setContentSize(NSSize(width: width, height: 24))
-        label.frame = NSRect(x: 0, y: 0, width: width, height: 24)
+        let unclampedOrigin = CoordinateConverter.overlayOrigin(
+            caretRect: caretRect,
+            fallbackElementRect: fallbackElementRect,
+            panelHeight: height
+        )
+        let origin = clampedOrigin(unclampedOrigin, size: CGSize(width: width, height: height))
+        panel.setContentSize(NSSize(width: width, height: height))
+        label.frame = NSRect(x: 0, y: 0, width: width, height: height)
         panel.setFrameOrigin(origin)
         panel.orderFrontRegardless()
         TraceLogger.shared.info("overlay_shown", fields: [
             "textLength": text.count,
-            "hasCaretRect": rect != nil,
+            "anchorSource": anchorSource,
+            "hasCaretRect": caretRect != nil,
+            "hasElementRect": fallbackElementRect != nil,
+            "unclampedOriginX": Int(unclampedOrigin.x),
+            "unclampedOriginY": Int(unclampedOrigin.y),
             "originX": Int(origin.x),
             "originY": Int(origin.y),
             "width": Int(width),
+            "height": Int(height),
             "level": Int(panel.level.rawValue)
         ])
     }
@@ -67,12 +79,26 @@ final class OverlayPanel {
         }
     }
 
-    private func clampedOrigin(_ origin: CGPoint, width: CGFloat) -> CGPoint {
+    private func fontSize(for caretRect: CGRect?) -> CGFloat {
+        guard let caretRect, caretRect.height.isFinite, caretRect.height > 0 else {
+            return 14
+        }
+        return min(max(caretRect.height * 0.78, 12), 18)
+    }
+
+    private func panelHeight(for caretRect: CGRect?) -> CGFloat {
+        guard let caretRect, caretRect.height.isFinite, caretRect.height > 0 else {
+            return 24
+        }
+        return min(max(caretRect.height + 6, 22), 30)
+    }
+
+    private func clampedOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(origin) }) ?? NSScreen.main else {
             return origin
         }
-        let x = min(max(origin.x, screen.visibleFrame.minX + 8), screen.visibleFrame.maxX - width - 8)
-        let y = min(max(origin.y, screen.visibleFrame.minY + 8), screen.visibleFrame.maxY - 28)
+        let x = min(max(origin.x, screen.visibleFrame.minX + 8), screen.visibleFrame.maxX - size.width - 8)
+        let y = min(max(origin.y, screen.visibleFrame.minY + 8), screen.visibleFrame.maxY - size.height - 4)
         return CGPoint(x: x, y: y)
     }
 }
