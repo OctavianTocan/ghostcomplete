@@ -7,16 +7,22 @@ source "$ROOT/scripts/lib/keychain"
 
 APP_EXECUTABLE="/Applications/GhostComplete.app/Contents/MacOS/GhostComplete"
 
-KEY="${AI_GATEWAY_API_KEY:-}"
+GATEWAY_KEY="${AI_GATEWAY_API_KEY:-}"
+OPENROUTER_KEY="${OPENROUTER_API_KEY:-}"
 
-if [[ -z "$KEY" ]]; then
-  read -r -s -p "AI_GATEWAY_API_KEY: " KEY
+if [[ -z "$GATEWAY_KEY" && -z "$OPENROUTER_KEY" ]]; then
+  read -r -s -p "OPENROUTER_API_KEY (preferred; leave empty to enter Gateway key): " OPENROUTER_KEY
   echo
 fi
 
-if [[ -z "$KEY" ]]; then
+if [[ -z "$GATEWAY_KEY" && -z "$OPENROUTER_KEY" ]]; then
+  read -r -s -p "AI_GATEWAY_API_KEY: " GATEWAY_KEY
+  echo
+fi
+
+if [[ -z "$GATEWAY_KEY" && -z "$OPENROUTER_KEY" ]]; then
   echo "No key provided." >&2
   exit 1
 fi
 
-store_gateway_key_in_keychain "$KEY" "$APP_EXECUTABLE"
+store_api_keys_in_keychain "$GATEWAY_KEY" "$OPENROUTER_KEY" "$APP_EXECUTABLE"

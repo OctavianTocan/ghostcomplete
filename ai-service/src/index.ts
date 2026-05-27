@@ -1,4 +1,4 @@
-import { FakeCompletionEngine, VercelAICompletionEngine } from "./ai.js";
+import { FakeCompletionEngine, OpenRouterCompletionEngine, VercelAICompletionEngine } from "./ai.js";
 import { loadConfig } from "./config.js";
 import { JsonlTraceLogger } from "./logger.js";
 import { createServer } from "./server.js";
@@ -12,16 +12,20 @@ logger.info("sidecar_boot", {
   databasePath: config.databasePath,
   profilePath: config.profilePath,
   logPath: config.sidecarLogPath,
+  provider: config.provider,
   model: config.model,
   host: config.host,
   port: config.port,
   hasGatewayKey: Boolean(process.env.AI_GATEWAY_API_KEY),
+  hasOpenRouterKey: Boolean(process.env.OPENROUTER_API_KEY),
   fakeCompletion: config.fakeCompletion !== undefined,
 });
 
 const store = new LearningStore(config.databasePath);
 const engine = config.fakeCompletion
   ? new FakeCompletionEngine(config.fakeCompletion)
+  : config.provider === "openrouter"
+    ? new OpenRouterCompletionEngine(config)
   : new VercelAICompletionEngine(config);
 
 const server = createServer(config, engine, store, logger);
@@ -39,5 +43,5 @@ process.on("SIGINT", () => {
   process.exit(0);
 });
 
-logger.info("sidecar_ready", { port: server.port, model: config.model });
-console.log(JSON.stringify({ event: "ready", port: server.port, model: config.model }));
+logger.info("sidecar_ready", { port: server.port, provider: config.provider, model: config.model });
+console.log(JSON.stringify({ event: "ready", port: server.port, provider: config.provider, model: config.model }));

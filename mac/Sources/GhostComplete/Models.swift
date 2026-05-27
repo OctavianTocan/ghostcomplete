@@ -33,6 +33,23 @@ struct LearnRequest: Codable, Equatable, Sendable {
     let app: AppContext
 }
 
+struct SidecarAPIKeys: Equatable, Sendable {
+    var gateway: String?
+    var openRouter: String?
+
+    var hasGateway: Bool {
+        gateway?.isEmpty == false
+    }
+
+    var hasOpenRouter: Bool {
+        openRouter?.isEmpty == false
+    }
+
+    var hasAny: Bool {
+        hasGateway || hasOpenRouter
+    }
+}
+
 struct FocusSnapshot: Sendable {
     let context: String
     let caretRect: CGRect?

@@ -62,7 +62,7 @@ final class SidecarClient {
         self.settings = settings
     }
 
-    func start(apiKey: String?) throws {
+    func start(apiKeys: SidecarAPIKeys) throws {
         if process?.isRunning == true {
             TraceLogger.shared.debug("sidecar_start_skipped_already_running", fields: ["port": port ?? -1])
             return
@@ -86,8 +86,11 @@ final class SidecarClient {
         environment["GHOSTCOMPLETE_PORT"] = String(sidecarPort)
         let runtimeSettings = SidecarRuntimeSettings.load(from: settings.sidecarSettingsURL)
         runtimeSettings?.apply(to: &environment)
-        if let apiKey, !apiKey.isEmpty {
-            environment["AI_GATEWAY_API_KEY"] = apiKey
+        if let gatewayKey = apiKeys.gateway, !gatewayKey.isEmpty {
+            environment[KeychainStore.gatewayAccount] = gatewayKey
+        }
+        if let openRouterKey = apiKeys.openRouter, !openRouterKey.isEmpty {
+            environment[KeychainStore.openRouterAccount] = openRouterKey
         }
         process.environment = environment
         TraceLogger.shared.info("sidecar_launch_prepared", fields: [
@@ -95,7 +98,9 @@ final class SidecarClient {
             "executablePath": command.executableURL.path,
             "argumentCount": command.arguments.count,
             "port": sidecarPort,
-            "hasApiKey": apiKey?.isEmpty == false,
+            "hasGatewayKey": apiKeys.hasGateway,
+            "hasOpenRouterKey": apiKeys.hasOpenRouter,
+            "provider": environment["GHOSTCOMPLETE_PROVIDER"] ?? "",
             "model": environment["GHOSTCOMPLETE_MODEL"] ?? "",
             "hasRuntimeSettings": runtimeSettings != nil,
             "logDir": settings.logsURL.path

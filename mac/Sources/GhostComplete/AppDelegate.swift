@@ -41,6 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         splash.onRetryChecks = { [weak self] in
             self?.permissions.retryNow()
         }
+        splash.onRuntimeSettingsChanged = { [weak self] in
+            self?.restartSidecar()
+        }
         splash.show(autoDismiss: true)
         updateSplash()
         coordinator.startSidecarAsync { [weak self] ready in

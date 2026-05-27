@@ -16,6 +16,8 @@ final class SplashWindowController: NSWindowController {
     private let logTextView = NSTextView()
     private let learningTextView = NSTextView()
 
+    private let providerSelector = NSSegmentedControl(labels: ["OpenRouter", "AI Gateway"], trackingMode: .selectOne, target: nil, action: nil)
+    private let modelField = NSTextField(string: "")
     private let debounceSlider = NSSlider(value: Double(AutocompletePreferences.default.debounceMs), minValue: 60, maxValue: 600, target: nil, action: nil)
     private let debounceValue = NSTextField(labelWithString: "")
     private let revealCheckbox = NSButton(checkboxWithTitle: "Reveal ghost text one character at a time", target: nil, action: nil)
@@ -30,6 +32,7 @@ final class SplashWindowController: NSWindowController {
     private var autoDismissWhenHealthy = true
     private var pendingAutoDismiss: DispatchWorkItem?
     var onRetryChecks: (() -> Void)?
+    var onRuntimeSettingsChanged: (() -> Void)?
 
     init(settings: SettingsStore) {
         self.settings = settings
@@ -69,6 +72,7 @@ final class SplashWindowController: NSWindowController {
         if !autoDismiss {
             preferences = settings.loadPreferences()
             loadPreferencesIntoControls()
+            loadRuntimeSettingsIntoControls()
             refreshLogs()
             refreshLearning()
         }
@@ -140,6 +144,7 @@ final class SplashWindowController: NSWindowController {
         ])
 
         loadPreferencesIntoControls()
+        loadRuntimeSettingsIntoControls()
         refreshLogs()
         refreshLearning()
 
@@ -222,7 +227,10 @@ final class SplashWindowController: NSWindowController {
         let openButton = NSButton(title: "Open Logs Folder", target: self, action: #selector(openLogsFolder))
         openButton.bezelStyle = .rounded
 
-        let topRow = NSStackView(views: [logSelector, refreshButton, openButton])
+        let copyButton = NSButton(title: "Copy", target: self, action: #selector(copyLogs))
+        copyButton.bezelStyle = .rounded
+
+        let topRow = NSStackView(views: [logSelector, refreshButton, copyButton, openButton])
         topRow.orientation = .horizontal
         topRow.spacing = 10
         topRow.alignment = .centerY
@@ -248,8 +256,21 @@ final class SplashWindowController: NSWindowController {
         }
         revealCheckbox.target = self
         revealCheckbox.action = #selector(savePreferences)
+        providerSelector.target = self
+        providerSelector.action = #selector(providerSelectionChanged)
+
+        modelField.placeholderString = "google/gemini-2.0-flash-lite"
+        modelField.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+
+        let saveProviderButton = NSButton(title: "Save Provider and Restart Sidecar", target: self, action: #selector(saveRuntimeSettings))
+        saveProviderButton.bezelStyle = .rounded
 
         let content = NSStackView(views: [
+            sectionTitle("AI provider"),
+            controlRow("Provider", control: providerSelector),
+            textFieldRow("Model", field: modelField),
+            saveProviderButton,
+            helperText("OpenRouter uses OPENROUTER_API_KEY. AI Gateway uses AI_GATEWAY_API_KEY. Model changes restart the sidecar."),
             sectionTitle("Autocomplete timing"),
             sliderRow("Idle debounce", slider: debounceSlider, value: debounceValue),
             helperText("Lower values feel more responsive; higher values reduce request churn while typing."),
@@ -275,7 +296,10 @@ final class SplashWindowController: NSWindowController {
         let profileButton = NSButton(title: "Open Profile", target: self, action: #selector(openProfile))
         profileButton.bezelStyle = .rounded
 
-        let topRow = NSStackView(views: [refreshButton, profileButton])
+        let copyButton = NSButton(title: "Copy", target: self, action: #selector(copyLearning))
+        copyButton.bezelStyle = .rounded
+
+        let topRow = NSStackView(views: [refreshButton, copyButton, profileButton])
         topRow.orientation = .horizontal
         topRow.spacing = 10
         topRow.alignment = .centerY
@@ -364,6 +388,32 @@ final class SplashWindowController: NSWindowController {
         return row
     }
 
+    private func controlRow(_ title: String, control: NSView) -> NSView {
+        let titleLabel = rowTitle(title)
+        let row = NSStackView(views: [titleLabel, control])
+        row.orientation = .horizontal
+        row.spacing = 12
+        row.alignment = .centerY
+        return row
+    }
+
+    private func textFieldRow(_ title: String, field: NSTextField) -> NSView {
+        let titleLabel = rowTitle(title)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let row = NSStackView(views: [titleLabel, field])
+        row.orientation = .horizontal
+        row.spacing = 12
+        row.alignment = .centerY
+        return row
+    }
+
+    private func rowTitle(_ title: String) -> NSTextField {
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        titleLabel.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        return titleLabel
+    }
+
     private func configureTextView(_ textView: NSTextView) {
         textView.isEditable = false
         textView.isSelectable = true
@@ -397,6 +447,19 @@ final class SplashWindowController: NSWindowController {
         updatePreferenceLabels()
     }
 
+    private func loadRuntimeSettingsIntoControls() {
+        let runtimeSettings = SidecarRuntimeSettings.load(from: settings.sidecarSettingsURL)
+        let environment = ProcessInfo.processInfo.environment
+        let provider = runtimeSettings?.provider
+            ?? SidecarRuntimeSettings.defaultProvider(
+                openRouterKey: environment[KeychainStore.openRouterAccount],
+                gatewayKey: environment[KeychainStore.gatewayAccount]
+            )
+            ?? "openrouter"
+        providerSelector.selectedSegment = provider == "gateway" ? 1 : 0
+        modelField.stringValue = runtimeSettings?.model ?? SidecarRuntimeSettings.defaultModel(for: provider)
+    }
+
     private func updatePreferenceLabels() {
         debounceValue.stringValue = "\(Int(debounceSlider.doubleValue.rounded())) ms"
         revealValue.stringValue = "\(Int(revealSlider.doubleValue.rounded())) ms"
@@ -424,6 +487,15 @@ final class SplashWindowController: NSWindowController {
 
     private func refreshLearning() {
         learningTextView.string = diagnostics.learningText()
+    }
+
+    private func selectedProvider() -> String {
+        providerSelector.selectedSegment == 1 ? "gateway" : "openrouter"
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func accessibilityStatusText(_ value: Bool?) -> String {
@@ -509,6 +581,20 @@ final class SplashWindowController: NSWindowController {
         refreshLearning()
     }
 
+    @objc private func copyLogs() {
+        copyToPasteboard(logTextView.string)
+    }
+
+    @objc private func copyLearning() {
+        copyToPasteboard(learningTextView.string)
+    }
+
+    @objc private func providerSelectionChanged() {
+        if modelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            modelField.stringValue = SidecarRuntimeSettings.defaultModel(for: selectedProvider())
+        }
+    }
+
     @objc private func savePreferences() {
         preferences = currentControlPreferences()
         updatePreferenceLabels()
@@ -523,6 +609,27 @@ final class SplashWindowController: NSWindowController {
             ])
         } catch {
             TraceLogger.shared.error("preferences_save_failed", fields: ["error": error.localizedDescription])
+        }
+    }
+
+    @objc private func saveRuntimeSettings() {
+        let existing = SidecarRuntimeSettings.load(from: settings.sidecarSettingsURL)
+        let provider = selectedProvider()
+        let model = modelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let runtimeSettings = SidecarRuntimeSettings(
+            provider: provider,
+            model: model.isEmpty ? SidecarRuntimeSettings.defaultModel(for: provider) : model,
+            timeoutMs: existing?.timeoutMs,
+            maxOutputTokens: existing?.maxOutputTokens,
+            temperature: existing?.temperature
+        )
+
+        do {
+            try runtimeSettings.write(to: settings.sidecarSettingsURL)
+            TraceLogger.shared.info("runtime_settings_saved", fields: runtimeSettings.traceFields)
+            onRuntimeSettingsChanged?()
+        } catch {
+            TraceLogger.shared.error("runtime_settings_save_failed", fields: ["error": error.localizedDescription])
         }
     }
 

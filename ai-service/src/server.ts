@@ -46,6 +46,7 @@ export function createServer(
   logger.info("server_starting", {
     host: config.host,
     requestedPort: config.port,
+    provider: config.provider,
     model: config.model,
     databasePath: config.databasePath,
     profilePath: config.profilePath,
@@ -68,7 +69,7 @@ export function createServer(
 
       if (req.method === "GET" && url.pathname === "/health") {
         logger.debug("health_check", { latencyMs: Math.round(performance.now() - requestStarted) });
-        return json({ ok: true, model: config.model });
+        return json({ ok: true, provider: config.provider, model: config.model });
       }
 
       if (!isAuthorized(req, config.token)) {
@@ -117,6 +118,7 @@ export function createServer(
 
           logger.info("completion_request_succeeded", {
             requestId,
+            provider: config.provider,
             model: config.model,
             latencyMs,
             completionLength: completion.length,
@@ -203,6 +205,7 @@ export function createServer(
   logger.info("server_listening", {
     host: config.host,
     port: server.port,
+    provider: config.provider,
     model: config.model,
   });
 

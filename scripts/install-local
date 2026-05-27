@@ -68,10 +68,10 @@ rm -rf "$INSTALL_PATH"
 cp -R "$APP_PATH" "$INSTALL_PATH"
 sign_ghostcomplete_app "$INSTALL_PATH"
 
-if [[ -n "${AI_GATEWAY_API_KEY:-}" ]]; then
-  store_gateway_key_in_keychain "$AI_GATEWAY_API_KEY" "$APP_EXECUTABLE"
+if [[ -n "${AI_GATEWAY_API_KEY:-}" || -n "${OPENROUTER_API_KEY:-}" ]]; then
+  store_api_keys_in_keychain "${AI_GATEWAY_API_KEY:-}" "${OPENROUTER_API_KEY:-}" "$APP_EXECUTABLE"
 else
-  echo "AI_GATEWAY_API_KEY was not set; run scripts/set-api-key before using live completions."
+  echo "No API key was set; run scripts/set-api-key before using live completions."
 fi
 
 echo "Installed $INSTALL_PATH"

@@ -1,3 +1,4 @@
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
   gateway,
   streamText,
@@ -89,6 +90,36 @@ export class VercelAICompletionEngine implements CompletionEngine {
     const result = streamText({
       reasoning: AUTOCOMPLETE_REASONING,
       model: gateway(this.config.model),
+      system: prompt.system,
+      prompt: prompt.prompt,
+      temperature: this.config.temperature,
+      maxOutputTokens: this.config.maxOutputTokens,
+      stopSequences: AUTOCOMPLETE_STOP_SEQUENCES,
+      providerOptions: AUTOCOMPLETE_PROVIDER_OPTIONS,
+      maxRetries: 0,
+      abortSignal,
+    } as StreamTextOptions);
+
+    return collectStreamResult(context, result, startedAt, abortSignal);
+  }
+}
+
+export class OpenRouterCompletionEngine implements CompletionEngine {
+  constructor(private readonly config: ServiceConfig) {}
+
+  async complete(context: string, prompt: PromptParts, signal?: AbortSignal): Promise<CompletionResult> {
+    const startedAt = performance.now();
+    const abortSignal = timeoutSignal(this.config.timeoutMs, signal);
+    const openrouter = createOpenRouter({
+      apiKey: this.config.openRouterApiKey,
+      headers: {
+        "X-OpenRouter-Title": "GhostComplete",
+        "HTTP-Referer": "https://github.com/OctavianTocan/ghostcomplete",
+      },
+    });
+    const result = streamText({
+      reasoning: AUTOCOMPLETE_REASONING,
+      model: openrouter(this.config.model),
       system: prompt.system,
       prompt: prompt.prompt,
       temperature: this.config.temperature,

@@ -1,17 +1,19 @@
 import Foundation
 
 struct SidecarRuntimeSettings: Codable, Equatable {
+    var provider: String? = nil
     var model: String?
     var timeoutMs: Int?
     var maxOutputTokens: Int?
     var temperature: Double?
 
     var isEmpty: Bool {
-        model == nil && timeoutMs == nil && maxOutputTokens == nil && temperature == nil
+        provider == nil && model == nil && timeoutMs == nil && maxOutputTokens == nil && temperature == nil
     }
 
     static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> SidecarRuntimeSettings {
         SidecarRuntimeSettings(
+            provider: providerValue(environment["GHOSTCOMPLETE_PROVIDER"]),
             model: nonEmpty(environment["GHOSTCOMPLETE_MODEL"]),
             timeoutMs: intValue(environment["GHOSTCOMPLETE_TIMEOUT_MS"]),
             maxOutputTokens: intValue(environment["GHOSTCOMPLETE_MAX_OUTPUT_TOKENS"]),
@@ -33,6 +35,7 @@ struct SidecarRuntimeSettings: Codable, Equatable {
     }
 
     func apply(to environment: inout [String: String]) {
+        setIfMissing("GHOSTCOMPLETE_PROVIDER", value: provider, in: &environment)
         setIfMissing("GHOSTCOMPLETE_MODEL", value: model, in: &environment)
         setIfMissing("GHOSTCOMPLETE_TIMEOUT_MS", value: timeoutMs.map { String($0) }, in: &environment)
         setIfMissing("GHOSTCOMPLETE_MAX_OUTPUT_TOKENS", value: maxOutputTokens.map { String($0) }, in: &environment)
@@ -41,6 +44,9 @@ struct SidecarRuntimeSettings: Codable, Equatable {
 
     var traceFields: [String: Any] {
         [
+            "provider": provider ?? "",
+            "model": model ?? "",
+            "hasProvider": provider?.isEmpty == false,
             "hasModel": model?.isEmpty == false,
             "hasTimeoutMs": timeoutMs != nil,
             "hasMaxOutputTokens": maxOutputTokens != nil,
@@ -48,11 +54,53 @@ struct SidecarRuntimeSettings: Codable, Equatable {
         ]
     }
 
+    func fillingDefaultProvider(openRouterKey: String?, gatewayKey: String?) -> SidecarRuntimeSettings {
+        guard provider == nil else {
+            return self
+        }
+        var copy = self
+        copy.provider = Self.defaultProvider(openRouterKey: openRouterKey, gatewayKey: gatewayKey)
+        return copy
+    }
+
+    static func defaultProvider(openRouterKey: String?, gatewayKey: String?) -> String? {
+        if nonEmpty(openRouterKey) != nil {
+            return "openrouter"
+        }
+        if nonEmpty(gatewayKey) != nil {
+            return "gateway"
+        }
+        return nil
+    }
+
+    static func defaultModel(for provider: String?) -> String {
+        switch provider?.lowercased() {
+        case "openrouter":
+            return "google/gemini-2.0-flash-lite"
+        default:
+            return "google/gemini-2.0-flash-lite"
+        }
+    }
+
     private static func nonEmpty(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
             return nil
         }
         return value
+    }
+
+    private static func providerValue(_ value: String?) -> String? {
+        guard let value = nonEmpty(value)?.lowercased() else {
+            return nil
+        }
+        switch value {
+        case "openrouter", "open-router":
+            return "openrouter"
+        case "gateway", "vercel", "ai-gateway":
+            return "gateway"
+        default:
+            return nil
+        }
     }
 
     private static func intValue(_ value: String?) -> Int? {

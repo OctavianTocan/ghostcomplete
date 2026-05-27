@@ -16,4 +16,9 @@ export const AUTOCOMPLETE_PROVIDER_OPTIONS = {
       thinkingBudget: 0,
     },
   },
+  openrouter: {
+    reasoning: {
+      effort: "low",
+    },
+  },
 };

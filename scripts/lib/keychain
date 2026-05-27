@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
-store_gateway_key_in_keychain() {
-  local key="$1"
-  local app_executable="${2:-}"
+store_api_keys_in_keychain() {
+  local gateway_key="${1:-}"
+  local openrouter_key="${2:-}"
+  local app_executable="${3:-}"
 
-  if [[ -z "$key" ]]; then
-    echo "AI_GATEWAY_API_KEY was empty; not storing it in Keychain." >&2
+  if [[ -z "$gateway_key" && -z "$openrouter_key" ]]; then
+    echo "AI_GATEWAY_API_KEY and OPENROUTER_API_KEY were empty; not storing a key in Keychain." >&2
     return 1
   fi
 
@@ -15,5 +16,9 @@ store_gateway_key_in_keychain() {
     return 1
   fi
 
-  AI_GATEWAY_API_KEY="$key" "$app_executable" --store-api-key-and-exit
+  AI_GATEWAY_API_KEY="$gateway_key" OPENROUTER_API_KEY="$openrouter_key" "$app_executable" --store-api-key-and-exit
+}
+
+store_gateway_key_in_keychain() {
+  store_api_keys_in_keychain "${1:-}" "" "${2:-}"
 }

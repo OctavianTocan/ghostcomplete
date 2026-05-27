@@ -31,3 +31,7 @@ All notable changes to GhostComplete will be documented in this file.
 - Changed Tab acceptance to insert only the next ghost word at a time while keeping the remaining suggestion visible.
 - Added local ghost-text reveal animation plus user-tunable debounce, animation speed, and overlay X/Y nudge preferences.
 - Added a tabbed status panel with embedded app/sidecar JSONL log browsing, settings controls, learned words, profile facts, and recent accepted suggestions.
+- Added OpenRouter as a first-class Vercel AI SDK provider, with `GHOSTCOMPLETE_PROVIDER=openrouter`, `OPENROUTER_API_KEY`, and Keychain seeding alongside AI Gateway.
+- Added provider and model controls to the Settings tab; saving either one persists sidecar runtime settings and restarts the local sidecar.
+- Changed the Logs tab to render JSONL traces as human-readable diagnostics, hide low-value no-focus heartbeat chatter, collapse repeated lines, and added Copy buttons to Logs and Learning.
+- Cleaned the Learning tab so it shows profile vocabulary, curated snippets, accepted suggestions, and real learning events instead of noisy request events or guessed word counts.

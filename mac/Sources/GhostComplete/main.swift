@@ -2,9 +2,11 @@ import AppKit
 import Foundation
 
 if CommandLine.arguments.contains("--store-api-key-and-exit") {
-    let key = ProcessInfo.processInfo.environment[KeychainStore.gatewayAccount] ?? ""
-    guard !key.isEmpty else {
-        fputs("AI_GATEWAY_API_KEY is not set.\n", stderr)
+    let environment = ProcessInfo.processInfo.environment
+    let gatewayKey = environment[KeychainStore.gatewayAccount] ?? ""
+    let openRouterKey = environment[KeychainStore.openRouterAccount] ?? ""
+    guard !gatewayKey.isEmpty || !openRouterKey.isEmpty else {
+        fputs("AI_GATEWAY_API_KEY or OPENROUTER_API_KEY is not set.\n", stderr)
         exit(2)
     }
 
@@ -12,21 +14,30 @@ if CommandLine.arguments.contains("--store-api-key-and-exit") {
         let settings = SettingsStore()
         try settings.ensureApplicationSupport()
         TraceLogger.shared.configure(fileURL: settings.appLogURL)
-        try KeychainStore().setString(key, account: KeychainStore.gatewayAccount)
-        let runtimeSettings = SidecarRuntimeSettings.fromEnvironment()
+        let keychain = KeychainStore()
+        if !gatewayKey.isEmpty {
+            try keychain.setString(gatewayKey, account: KeychainStore.gatewayAccount)
+        }
+        if !openRouterKey.isEmpty {
+            try keychain.setString(openRouterKey, account: KeychainStore.openRouterAccount)
+        }
+        let runtimeSettings = SidecarRuntimeSettings
+            .fromEnvironment()
+            .fillingDefaultProvider(openRouterKey: openRouterKey, gatewayKey: gatewayKey)
         if !runtimeSettings.isEmpty {
             try runtimeSettings.write(to: settings.sidecarSettingsURL)
             TraceLogger.shared.info("sidecar_runtime_settings_saved", fields: runtimeSettings.traceFields)
         }
         TraceLogger.shared.info("api_key_seeded_to_keychain", fields: [
             "service": KeychainStore.gatewayService,
-            "account": KeychainStore.gatewayAccount
+            "hasGatewayKey": !gatewayKey.isEmpty,
+            "hasOpenRouterKey": !openRouterKey.isEmpty
         ])
         TraceLogger.shared.flush()
-        print("Stored AI_GATEWAY_API_KEY in the GhostComplete Keychain item.")
+        print("Stored GhostComplete API key(s) in the Keychain item.")
         exit(0)
     } catch {
-        fputs("Could not store AI_GATEWAY_API_KEY in Keychain: \(error)\n", stderr)
+        fputs("Could not store GhostComplete API key(s) in Keychain: \(error)\n", stderr)
         exit(1)
     }
 }

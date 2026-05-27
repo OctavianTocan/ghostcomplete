@@ -45,20 +45,26 @@ final class CompletionCoordinator {
         }
 
         sidecarStartInFlight = true
-        let envKey = ProcessInfo.processInfo.environment["AI_GATEWAY_API_KEY"]
+        let environment = ProcessInfo.processInfo.environment
+        let envKeys = SidecarAPIKeys(
+            gateway: nonEmpty(environment[KeychainStore.gatewayAccount]),
+            openRouter: nonEmpty(environment[KeychainStore.openRouterAccount])
+        )
         TraceLogger.shared.info("sidecar_start_requested", fields: [
-            "hasEnvKey": envKey?.isEmpty == false
+            "hasGatewayEnvKey": envKeys.hasGateway,
+            "hasOpenRouterEnvKey": envKeys.hasOpenRouter
         ])
 
-        if let envKey, !envKey.isEmpty {
-            seedKeychainFromEnvironment(envKey)
+        if envKeys.hasAny {
+            seedKeychainFromEnvironment(envKeys)
             TraceLogger.shared.info("api_key_resolution_finished", fields: [
                 "hasKeychainKey": false,
-                "hasEnvKey": true,
+                "hasGatewayEnvKey": envKeys.hasGateway,
+                "hasOpenRouterEnvKey": envKeys.hasOpenRouter,
                 "hasApiKey": true,
                 "keychainSkipped": true
             ])
-            let ready = startSidecar(apiKey: envKey)
+            let ready = startSidecar(apiKeys: envKeys)
             sidecarStartInFlight = false
             onStatus?(ready)
             return
@@ -67,39 +73,52 @@ final class CompletionCoordinator {
         DispatchQueue.global(qos: .utility).async {
             TraceLogger.shared.info("api_key_resolution_started")
             let backgroundKeychain = KeychainStore()
-            let keychainKey = backgroundKeychain.string(account: KeychainStore.gatewayAccount)
-            let apiKey = keychainKey
+            let keychainKeys = SidecarAPIKeys(
+                gateway: backgroundKeychain.string(account: KeychainStore.gatewayAccount),
+                openRouter: backgroundKeychain.string(account: KeychainStore.openRouterAccount)
+            )
 
             TraceLogger.shared.info("api_key_resolution_finished", fields: [
-                "hasKeychainKey": keychainKey != nil,
-                "hasEnvKey": false,
-                "hasApiKey": apiKey?.isEmpty == false
+                "hasGatewayKeychainKey": keychainKeys.hasGateway,
+                "hasOpenRouterKeychainKey": keychainKeys.hasOpenRouter,
+                "hasGatewayEnvKey": false,
+                "hasOpenRouterEnvKey": false,
+                "hasApiKey": keychainKeys.hasAny
             ])
 
             Task { @MainActor [weak self] in
                 guard let self else {
                     return
                 }
-                let ready = self.startSidecar(apiKey: apiKey)
+                let ready = self.startSidecar(apiKeys: keychainKeys)
                 self.sidecarStartInFlight = false
                 onStatus?(ready)
             }
         }
     }
 
-    private func seedKeychainFromEnvironment(_ key: String) {
+    private func seedKeychainFromEnvironment(_ keys: SidecarAPIKeys) {
         let sidecarSettingsURL = settings.sidecarSettingsURL
         DispatchQueue.global(qos: .utility).async {
             do {
-                try KeychainStore().setString(key, account: KeychainStore.gatewayAccount)
-                let runtimeSettings = SidecarRuntimeSettings.fromEnvironment()
+                let keychain = KeychainStore()
+                if let key = keys.gateway, !key.isEmpty {
+                    try keychain.setString(key, account: KeychainStore.gatewayAccount)
+                }
+                if let key = keys.openRouter, !key.isEmpty {
+                    try keychain.setString(key, account: KeychainStore.openRouterAccount)
+                }
+                let runtimeSettings = SidecarRuntimeSettings
+                    .fromEnvironment()
+                    .fillingDefaultProvider(openRouterKey: keys.openRouter, gatewayKey: keys.gateway)
                 if !runtimeSettings.isEmpty {
                     try runtimeSettings.write(to: sidecarSettingsURL)
                     TraceLogger.shared.info("sidecar_runtime_settings_saved", fields: runtimeSettings.traceFields)
                 }
                 TraceLogger.shared.info("api_key_seeded_to_keychain", fields: [
                     "service": KeychainStore.gatewayService,
-                    "account": KeychainStore.gatewayAccount,
+                    "hasGatewayKey": keys.hasGateway,
+                    "hasOpenRouterKey": keys.hasOpenRouter,
                     "source": "environment"
                 ])
             } catch {
@@ -111,12 +130,13 @@ final class CompletionCoordinator {
     }
 
     @discardableResult
-    private func startSidecar(apiKey: String?) -> Bool {
+    private func startSidecar(apiKeys: SidecarAPIKeys) -> Bool {
         TraceLogger.shared.info("sidecar_launch_requested", fields: [
-            "hasApiKey": apiKey?.isEmpty == false
+            "hasGatewayKey": apiKeys.hasGateway,
+            "hasOpenRouterKey": apiKeys.hasOpenRouter
         ])
         do {
-            try sidecar.start(apiKey: apiKey)
+            try sidecar.start(apiKeys: apiKeys)
             TraceLogger.shared.info("sidecar_start_succeeded")
             return true
         } catch {
@@ -124,6 +144,13 @@ final class CompletionCoordinator {
             NSLog("[GhostComplete] Sidecar launch failed: \(error.localizedDescription)")
             return false
         }
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     func stopSidecar() {

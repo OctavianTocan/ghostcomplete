@@ -3,6 +3,7 @@ import Security
 
 final class KeychainStore {
     static let gatewayAccount = "AI_GATEWAY_API_KEY"
+    static let openRouterAccount = "OPENROUTER_API_KEY"
     static let gatewayService = "dev.octavian.GhostComplete.AIGateway"
 
     private let service: String
