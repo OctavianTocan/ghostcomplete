@@ -2,7 +2,14 @@ import Foundation
 import Security
 
 final class KeychainStore {
-    private let service = "GhostComplete"
+    static let gatewayAccount = "AI_GATEWAY_API_KEY"
+    static let gatewayService = "dev.octavian.GhostComplete.AIGateway"
+
+    private let service: String
+
+    init(service: String = KeychainStore.gatewayService) {
+        self.service = service
+    }
 
     func string(account: String) -> String? {
         let query: [String: Any] = [

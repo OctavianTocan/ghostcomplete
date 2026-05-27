@@ -26,7 +26,7 @@ cp .env.example .env.local
 bun run try
 ```
 
-`bun run try` builds the Bun sidecar, builds the macOS app, signs it with the first available local code-signing identity, installs it to `/Applications/GhostComplete.app`, stores `AI_GATEWAY_API_KEY` from `.env.local` or `.env` in Keychain, grants the installed app access to that Keychain item, and launches the app. If no signing identity exists, it falls back to ad-hoc signing and macOS may require permissions again after each rebuild.
+`bun run try` builds the Bun sidecar, builds the macOS app, signs it with the first available local code-signing identity, installs it to `/Applications/GhostComplete.app`, asks the signed app to store `AI_GATEWAY_API_KEY` from `.env.local` or `.env` in Keychain, and launches the app. If no signing identity exists, it falls back to ad-hoc signing and macOS may require permissions again after each rebuild.
 
 Grant Accessibility and Input Monitoring permissions when macOS prompts, then type in a supported text field. Tab accepts the ghost suggestion and Esc dismisses it.
 
@@ -55,9 +55,9 @@ The sidecar reads:
 - `GHOSTCOMPLETE_PORT` for development. Production launch uses the bundled Bun sidecar.
 - `GHOSTCOMPLETE_LOG_DIR` to override the default JSONL trace directory.
 
-The Swift app uses `AI_GATEWAY_API_KEY` from its launch environment first, which keeps `bun run try` and other local dev launches from touching Keychain. Finder launches usually do not inherit your shell environment, so the app falls back to Keychain and passes the key to the sidecar at launch.
+The Swift app uses `AI_GATEWAY_API_KEY` from its launch environment first and also stores that value in GhostComplete's app-owned Keychain item. Finder launches usually do not inherit your shell environment, so the app falls back to Keychain and passes the key to the sidecar at launch.
 
-Seed Keychain with `bun run set-key`, or run `bun run install:local` after setting `AI_GATEWAY_API_KEY` in `.env.local`. When `/Applications/GhostComplete.app` exists, both commands attach the installed app executable as the trusted client for the Keychain item.
+Seed Keychain with `bun run set-key`, or run `bun run install:local` after setting `AI_GATEWAY_API_KEY` in `.env.local`. Both commands use the signed GhostComplete app to write the Keychain item; they do not call the macOS `security` CLI to edit Keychain access lists.
 
 ## AI Gateway
 
@@ -116,7 +116,7 @@ GhostComplete shows a status window on launch with Accessibility, Input Monitori
 
 Accessibility and Input Monitoring prompts are macOS privacy permissions for reading focused text fields and intercepting Tab/Esc. They are managed in System Settings.
 
-Keychain prompts are different: they appear when the Finder-launched app reads `AI_GATEWAY_API_KEY` from the login Keychain. `bun run install:local` and `bun run set-key` attach `/Applications/GhostComplete.app/Contents/MacOS/GhostComplete` as the trusted app for that secret. If macOS still shows a Keychain dialog, choose `Always Allow`; `Allow` is one-time and can reappear on the next launch.
+Keychain prompts are different: they appear when the Finder-launched app reads `AI_GATEWAY_API_KEY` from the login Keychain. `bun run install:local` and `bun run set-key` seed the secret by running `/Applications/GhostComplete.app/Contents/MacOS/GhostComplete --store-api-key-and-exit`, so the signed app creates or updates its own Keychain item. If macOS still shows a GhostComplete Keychain dialog, choose `Always Allow`; `Allow` is one-time and can reappear on the next launch. A dialog that says `security wants to use the "login" keychain` is from another CLI process, not GhostComplete.
 
 ## Testing
 

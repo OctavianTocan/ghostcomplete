@@ -47,6 +47,7 @@ final class CompletionCoordinator {
         ])
 
         if let envKey, !envKey.isEmpty {
+            seedKeychainFromEnvironment(envKey)
             TraceLogger.shared.info("api_key_resolution_finished", fields: [
                 "hasKeychainKey": false,
                 "hasEnvKey": true,
@@ -62,7 +63,7 @@ final class CompletionCoordinator {
         DispatchQueue.global(qos: .utility).async {
             TraceLogger.shared.info("api_key_resolution_started")
             let backgroundKeychain = KeychainStore()
-            let keychainKey = backgroundKeychain.string(account: "AI_GATEWAY_API_KEY")
+            let keychainKey = backgroundKeychain.string(account: KeychainStore.gatewayAccount)
             let apiKey = keychainKey
 
             TraceLogger.shared.info("api_key_resolution_finished", fields: [
@@ -78,6 +79,23 @@ final class CompletionCoordinator {
                 let ready = self.startSidecar(apiKey: apiKey)
                 self.sidecarStartInFlight = false
                 onStatus?(ready)
+            }
+        }
+    }
+
+    private func seedKeychainFromEnvironment(_ key: String) {
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                try KeychainStore().setString(key, account: KeychainStore.gatewayAccount)
+                TraceLogger.shared.info("api_key_seeded_to_keychain", fields: [
+                    "service": KeychainStore.gatewayService,
+                    "account": KeychainStore.gatewayAccount,
+                    "source": "environment"
+                ])
+            } catch {
+                TraceLogger.shared.error("api_key_keychain_seed_failed", fields: [
+                    "error": error.localizedDescription
+                ])
             }
         }
     }

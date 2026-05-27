@@ -1,40 +1,19 @@
 #!/usr/bin/env bash
 
-GHOSTCOMPLETE_KEYCHAIN_SERVICE="GhostComplete"
-GHOSTCOMPLETE_KEYCHAIN_ACCOUNT="AI_GATEWAY_API_KEY"
-
 store_gateway_key_in_keychain() {
   local key="$1"
-  local trusted_app_path="${2:-}"
+  local app_executable="${2:-}"
 
   if [[ -z "$key" ]]; then
     echo "AI_GATEWAY_API_KEY was empty; not storing it in Keychain." >&2
     return 1
   fi
 
-  local args=(
-    add-generic-password
-    -a "$GHOSTCOMPLETE_KEYCHAIN_ACCOUNT"
-    -s "$GHOSTCOMPLETE_KEYCHAIN_SERVICE"
-    -w "$key"
-    -U
-  )
-
-  if [[ -n "$trusted_app_path" && -x "$trusted_app_path" ]]; then
-    args+=(-T "$trusted_app_path")
-    echo "Updating Keychain access for $trusted_app_path."
-    echo "If macOS asks for login Keychain access, enter the password and click Always Allow."
+  if [[ -z "$app_executable" || ! -x "$app_executable" ]]; then
+    echo "GhostComplete app executable was not found: ${app_executable:-<empty>}" >&2
+    echo "Run bun run install:local first, then rerun bun run set-key." >&2
+    return 1
   fi
 
-  security "${args[@]}" >/dev/null
-
-  if [[ -n "$trusted_app_path" && -x "$trusted_app_path" ]]; then
-    echo "Stored AI_GATEWAY_API_KEY in Keychain for GhostComplete and trusted $trusted_app_path."
-  else
-    echo "Stored AI_GATEWAY_API_KEY in Keychain for GhostComplete."
-    if [[ -n "$trusted_app_path" ]]; then
-      echo "Trusted app access was not attached because $trusted_app_path does not exist yet."
-      echo "Run bun run install:local after installing the app to attach trusted Keychain access."
-    fi
-  fi
+  AI_GATEWAY_API_KEY="$key" "$app_executable" --store-api-key-and-exit
 }
