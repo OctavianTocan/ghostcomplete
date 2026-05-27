@@ -9,4 +9,5 @@ All notable changes to GhostComplete will be documented in this file.
 - Added localhost-only authenticated `/complete`, `/learn`, and `/health` sidecar endpoints.
 - Added local privacy-first learning store with SQLite, accepted/curated examples, profile JSON, and no default raw typing persistence.
 - Added Bun build/test/dev scripts, local installer, permission reset helper, Keychain API key seeding, and sidecar smoke test.
+- Added root-level Bun scripts for one-command local install, launch, smoke testing, and reset workflows.
 - Added Swift and Bun unit/integration tests for skip rules, debounce behavior, insertion strategy, schema validation, prompts, privacy helpers, AI wrapper, and sidecar HTTP behavior.

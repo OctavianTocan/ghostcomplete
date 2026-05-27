@@ -1,0 +1,24 @@
+{
+  "name": "ghostcomplete",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.13",
+  "scripts": {
+    "setup": "bun install --cwd ai-service",
+    "set-key": "scripts/set-api-key",
+    "dev": "scripts/dev",
+    "build:sidecar": "bun run --cwd ai-service build",
+    "build:app": "scripts/build-app",
+    "install:local": "scripts/install-local",
+    "try": "scripts/install-local --launch",
+    "typecheck": "bun run --cwd ai-service typecheck",
+    "test:sidecar": "bun run --cwd ai-service test",
+    "test:mac": "swift test --package-path mac",
+    "test": "bun run typecheck && bun run test:sidecar && bun run test:mac",
+    "smoke": "scripts/smoke-ai-service",
+    "reset-perms": "scripts/reset-permissions",
+    "reset-data": "scripts/reset-permissions --delete-data",
+    "clean": "rm -rf ai-service/dist mac/.build build"
+  }
+}

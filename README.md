@@ -25,18 +25,17 @@ The original Python prototype remains in `ghostcomplete.py` as reference materia
 ```sh
 cp .env.example .env
 # edit .env and set AI_GATEWAY_API_KEY
-bun install --cwd ai-service
-bun run --cwd ai-service build
-swift test --package-path mac
-scripts/install-local
+bun run try
 ```
 
-Open `/Applications/GhostComplete.app`, grant Accessibility and Input Monitoring permissions, then type in a supported text field. Tab accepts the ghost suggestion and Esc dismisses it.
+`bun run try` builds the Bun sidecar, builds and ad-hoc signs the macOS app, installs it to `/Applications/GhostComplete.app`, stores `AI_GATEWAY_API_KEY` from `.env` in Keychain, and launches the app.
+
+Grant Accessibility and Input Monitoring permissions when macOS prompts, then type in a supported text field. Tab accepts the ghost suggestion and Esc dismisses it.
 
 For development:
 
 ```sh
-scripts/dev
+bun run dev
 ```
 
 ## Configuration
@@ -60,19 +59,28 @@ The Swift app reads the key from Keychain first. Seed it with `scripts/set-api-k
 ## Build And Install
 
 ```sh
-scripts/build-app
-scripts/install-local
+bun run install:local
 ```
 
 The installed app is ad-hoc signed as `/Applications/GhostComplete.app` with bundle ID `dev.octavian.GhostComplete`.
 
+Useful local commands:
+
+```sh
+bun run setup          # install sidecar dependencies
+bun run set-key        # store AI_GATEWAY_API_KEY from .env or prompt in Keychain
+bun run try            # install and launch the app
+bun run install:local  # install without launching
+bun run smoke          # smoke-test the local sidecar
+bun run reset-perms    # reset macOS TCC permissions for the app
+bun run reset-data     # reset permissions and delete learned data
+```
+
 ## Testing
 
 ```sh
-bun run --cwd ai-service typecheck
-bun run --cwd ai-service test
-swift test --package-path mac
-scripts/smoke-ai-service
+bun run test
+bun run smoke
 ```
 
 ## Privacy

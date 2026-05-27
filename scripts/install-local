@@ -3,6 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/load-env"
+LAUNCH=0
+
+if [[ "${1:-}" == "--launch" ]]; then
+  LAUNCH=1
+fi
+
 APP_PATH="$("$ROOT/scripts/build-app" | tail -n 1)"
 
 rm -rf "/Applications/GhostComplete.app"
@@ -22,3 +28,7 @@ fi
 
 echo "Installed /Applications/GhostComplete.app"
 echo "Launch it, then grant Accessibility and Input Monitoring permissions when macOS prompts."
+
+if [[ "$LAUNCH" == "1" ]]; then
+  open "/Applications/GhostComplete.app"
+fi
