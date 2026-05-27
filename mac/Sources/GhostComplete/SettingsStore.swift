@@ -6,6 +6,7 @@ final class SettingsStore {
     let databaseURL: URL
     let logsURL: URL
     let appLogURL: URL
+    let sidecarSettingsURL: URL
 
     var denylistedBundleIds: Set<String> = [
         "com.apple.keychainaccess",
@@ -30,6 +31,7 @@ final class SettingsStore {
         databaseURL = base.appendingPathComponent("learning.sqlite")
         logsURL = base.appendingPathComponent("logs", isDirectory: true)
         appLogURL = logsURL.appendingPathComponent("app.jsonl")
+        sidecarSettingsURL = base.appendingPathComponent("sidecar-settings.json")
     }
 
     func ensureApplicationSupport() throws {

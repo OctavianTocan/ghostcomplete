@@ -7,6 +7,8 @@ final class SplashWindowController: NSWindowController {
     private let sidecarValue = NSTextField(labelWithString: "Starting")
     private let identityValue = NSTextField(labelWithString: "")
     private let logsURL: URL
+    private var autoDismissWhenHealthy = true
+    private var pendingAutoDismiss: DispatchWorkItem?
     var onRetryChecks: (() -> Void)?
 
     init(settings: SettingsStore) {
@@ -33,10 +35,13 @@ final class SplashWindowController: NSWindowController {
         fatalError("init(coder:) is not supported")
     }
 
-    func show() {
+    func show(autoDismiss: Bool = true) {
         guard let window else {
             return
         }
+        autoDismissWhenHealthy = autoDismiss
+        pendingAutoDismiss?.cancel()
+        pendingAutoDismiss = nil
         window.center()
         window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
@@ -55,10 +60,18 @@ final class SplashWindowController: NSWindowController {
 
         if permissionSnapshot?.accessibilityTrusted == true,
            permissionSnapshot?.inputMonitoringReady == true,
-           sidecarReady == true {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+           sidecarReady == true,
+           autoDismissWhenHealthy {
+            pendingAutoDismiss?.cancel()
+            let workItem = DispatchWorkItem { [weak self] in
                 self?.window?.orderOut(nil)
+                self?.pendingAutoDismiss = nil
             }
+            pendingAutoDismiss = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: workItem)
+        } else {
+            pendingAutoDismiss?.cancel()
+            pendingAutoDismiss = nil
         }
     }
 

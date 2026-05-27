@@ -58,6 +58,8 @@ final class SidecarClient {
         environment["GHOSTCOMPLETE_APP_SUPPORT"] = settings.appSupportURL.path
         environment["GHOSTCOMPLETE_LOG_DIR"] = settings.logsURL.path
         environment["GHOSTCOMPLETE_PORT"] = String(sidecarPort)
+        let runtimeSettings = SidecarRuntimeSettings.load(from: settings.sidecarSettingsURL)
+        runtimeSettings?.apply(to: &environment)
         if let apiKey, !apiKey.isEmpty {
             environment["AI_GATEWAY_API_KEY"] = apiKey
         }
@@ -68,6 +70,8 @@ final class SidecarClient {
             "argumentCount": command.arguments.count,
             "port": sidecarPort,
             "hasApiKey": apiKey?.isEmpty == false,
+            "model": environment["GHOSTCOMPLETE_MODEL"] ?? "",
+            "hasRuntimeSettings": runtimeSettings != nil,
             "logDir": settings.logsURL.path
         ])
 

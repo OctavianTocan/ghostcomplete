@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         splash.onRetryChecks = { [weak self] in
             self?.permissions.retryNow()
         }
-        splash.show()
+        splash.show(autoDismiss: true)
         updateSplash()
         coordinator.startSidecarAsync { [weak self] ready in
             self?.sidecarReady = ready
@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showStatus() {
         TraceLogger.shared.info("menu_show_status")
-        splash.show()
+        splash.show(autoDismiss: false)
         permissions.refresh(promptForAccessibility: false, source: "menu_show_status")
     }
 

@@ -13,6 +13,11 @@ if CommandLine.arguments.contains("--store-api-key-and-exit") {
         try settings.ensureApplicationSupport()
         TraceLogger.shared.configure(fileURL: settings.appLogURL)
         try KeychainStore().setString(key, account: KeychainStore.gatewayAccount)
+        let runtimeSettings = SidecarRuntimeSettings.fromEnvironment()
+        if !runtimeSettings.isEmpty {
+            try runtimeSettings.write(to: settings.sidecarSettingsURL)
+            TraceLogger.shared.info("sidecar_runtime_settings_saved", fields: runtimeSettings.traceFields)
+        }
         TraceLogger.shared.info("api_key_seeded_to_keychain", fields: [
             "service": KeychainStore.gatewayService,
             "account": KeychainStore.gatewayAccount

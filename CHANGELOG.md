@@ -20,3 +20,5 @@ All notable changes to GhostComplete will be documented in this file.
 - Added Bun build/test/dev scripts, local installer, permission reset helper, Keychain API key seeding, and sidecar smoke test.
 - Added root-level Bun scripts for one-command local install, launch, smoke testing, and reset workflows.
 - Added Swift and Bun unit/integration tests for skip rules, debounce behavior, insertion strategy, schema validation, prompts, privacy helpers, AI wrapper, and sidecar HTTP behavior.
+- Fixed Finder-launched app completions by persisting non-secret sidecar model settings from `.env.local` and passing them to the bundled sidecar.
+- Changed the status window so launch health can auto-dismiss while manually opened status stays visible.

@@ -8,7 +8,7 @@ const rootDir = path.resolve(thisDir, "../..");
 loadDotenv({ path: path.join(rootDir, ".env"), quiet: true });
 loadDotenv({ path: path.join(rootDir, ".env.local"), override: true, quiet: true });
 
-const model = process.env.GHOSTCOMPLETE_MODEL ?? "openai/gpt-5.4";
+const model = process.env.GHOSTCOMPLETE_MODEL ?? "morph/morph-v3-fast";
 const prompt = process.argv.slice(2).join(" ") || "Write one short sentence confirming AI Gateway streaming works.";
 
 const result = streamText({

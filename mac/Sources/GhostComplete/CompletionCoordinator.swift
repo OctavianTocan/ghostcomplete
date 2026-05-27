@@ -84,9 +84,15 @@ final class CompletionCoordinator {
     }
 
     private func seedKeychainFromEnvironment(_ key: String) {
+        let sidecarSettingsURL = settings.sidecarSettingsURL
         DispatchQueue.global(qos: .utility).async {
             do {
                 try KeychainStore().setString(key, account: KeychainStore.gatewayAccount)
+                let runtimeSettings = SidecarRuntimeSettings.fromEnvironment()
+                if !runtimeSettings.isEmpty {
+                    try runtimeSettings.write(to: sidecarSettingsURL)
+                    TraceLogger.shared.info("sidecar_runtime_settings_saved", fields: runtimeSettings.traceFields)
+                }
                 TraceLogger.shared.info("api_key_seeded_to_keychain", fields: [
                     "service": KeychainStore.gatewayService,
                     "account": KeychainStore.gatewayAccount,

@@ -51,7 +51,7 @@ Scripts source environment variables from `.env` and `.env.local` automatically,
 The sidecar reads:
 
 - `AI_GATEWAY_API_KEY` for Vercel AI Gateway auth.
-- `GHOSTCOMPLETE_MODEL` for the AI Gateway model string. Default: `openai/gpt-5.4`.
+- `GHOSTCOMPLETE_MODEL` for the AI Gateway model string. Default: `morph/morph-v3-fast`.
 - `GHOSTCOMPLETE_PORT` for development. Production launch uses the bundled Bun sidecar.
 - `GHOSTCOMPLETE_LOG_DIR` to override the default JSONL trace directory.
 
@@ -62,6 +62,8 @@ Seed Keychain with `bun run set-key`, or run `bun run install:local` after setti
 ## AI Gateway
 
 The sidecar uses Vercel AI SDK `streamText` through AI Gateway and then returns the final continuation to the Swift app over the local JSON protocol. Stream traces include chunk count, first-token latency, stream latency, finish reason, provider response metadata, warnings, and token usage.
+
+`openai/gpt-5.4` works only when your Vercel AI Gateway account has access to that model. On free-tier Gateway accounts it can fail with a restricted-model error, so the local default uses `morph/morph-v3-fast`. Set `GHOSTCOMPLETE_MODEL=openai/gpt-5.4` in `.env.local` if your Gateway account supports it.
 
 To verify Gateway independently:
 
