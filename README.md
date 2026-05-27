@@ -26,7 +26,7 @@ cp .env.example .env.local
 bun run try
 ```
 
-`bun run try` builds the Bun sidecar, builds and ad-hoc signs the macOS app, installs it to `/Applications/GhostComplete.app`, stores `AI_GATEWAY_API_KEY` from `.env` in Keychain, and launches the app.
+`bun run try` builds the Bun sidecar, builds the macOS app, signs it with the first available local code-signing identity, installs it to `/Applications/GhostComplete.app`, stores `AI_GATEWAY_API_KEY` from `.env.local` or `.env` in Keychain, and launches the app. If no signing identity exists, it falls back to ad-hoc signing and macOS may require permissions again after each rebuild.
 
 Grant Accessibility and Input Monitoring permissions when macOS prompts, then type in a supported text field. Tab accepts the ghost suggestion and Esc dismisses it.
 
@@ -110,7 +110,7 @@ The trace stream includes app launch, permission checks, sidecar launch, request
 
 ## Permissions
 
-GhostComplete shows a small status window on launch with Accessibility, Input Monitoring, and sidecar state. If Input Monitoring is enabled but the app still reports `Needs access`, remove GhostComplete from System Settings and add `/Applications/GhostComplete.app` again. The app retries the keyboard event tap while the status window is open, so a full restart is not usually needed after granting permission.
+GhostComplete shows a status window on launch with Accessibility, Input Monitoring, sidecar state, and the exact bundle/path/signing requirement macOS is evaluating. If System Settings shows GhostComplete enabled but the app still reports `Not trusted by macOS` or `Event tap blocked`, remove all GhostComplete rows from Accessibility and Input Monitoring, add `/Applications/GhostComplete.app` again, then click `Retry Checks`. A full restart is not usually needed after granting permission.
 
 ## Testing
 

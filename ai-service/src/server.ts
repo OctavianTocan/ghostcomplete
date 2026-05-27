@@ -107,6 +107,14 @@ export function createServer(
           const completion = result.completion;
           const latencyMs = Math.round(performance.now() - requestStarted);
 
+          if (result.metadataFailures.length > 0) {
+            logger.warn("ai_metadata_unavailable", {
+              requestId,
+              failureCount: result.metadataFailures.length,
+              failures: result.metadataFailures,
+            });
+          }
+
           logger.info("completion_request_succeeded", {
             requestId,
             model: config.model,
@@ -194,6 +202,7 @@ function completionTraceFields(result: CompletionResult): Record<string, unknown
     finishReason: result.finishReason ?? null,
     usage: result.usage ?? null,
     totalUsage: result.totalUsage ?? null,
+    metadataFailureCount: result.metadataFailures.length,
     warningsCount: result.warnings?.length ?? 0,
     warnings: result.warnings?.map((warning) => ({
       type: warning.type,

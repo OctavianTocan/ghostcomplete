@@ -99,6 +99,7 @@ describe("sidecar server", () => {
           timestamp: new Date("2026-05-27T00:00:00.000Z"),
           modelId: "test/model",
         },
+        metadataFailures: [],
         stream: {
           chunkCount: 2,
           firstChunkLatencyMs: 12,
@@ -133,7 +134,60 @@ describe("sidecar server", () => {
         finishReason: "stop",
         usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
         totalUsage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+        metadataFailureCount: 0,
       });
+    } finally {
+      server.stop();
+      store.close();
+    }
+  });
+
+  it("logs AI SDK metadata collection failures without failing completions", async () => {
+    const config = makeConfig();
+    const store = new LearningStore(config.databasePath);
+    const events: Array<{ event: string; fields: Record<string, unknown> }> = [];
+    const logger: TraceLogger = {
+      debug: (event, fields = {}) => events.push({ event, fields }),
+      info: (event, fields = {}) => events.push({ event, fields }),
+      warn: (event, fields = {}) => events.push({ event, fields }),
+      error: (event, fields = {}) => events.push({ event, fields }),
+    };
+    const engine: CompletionEngine = {
+      complete: async () => ({
+        completion: " done",
+        metadataFailures: [{ field: "usage", message: "usage unavailable" }],
+        stream: {
+          chunkCount: 1,
+          streamLatencyMs: 20,
+          rawCompletionLength: 5,
+        },
+      }),
+    };
+    const server = createServer(config, engine, store, logger);
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/complete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer test-token",
+        },
+        body: JSON.stringify({
+          requestId: "metadata-test",
+          context: "Nearly",
+          app: { bundleId: "com.apple.TextEdit", name: "TextEdit" },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      const metadataEvent = events.find((entry) => entry.event === "ai_metadata_unavailable");
+      expect(metadataEvent?.fields).toMatchObject({
+        requestId: "metadata-test",
+        failureCount: 1,
+        failures: [{ field: "usage", message: "usage unavailable" }],
+      });
+      const successEvent = events.find((entry) => entry.event === "completion_request_succeeded");
+      expect(successEvent?.fields).toMatchObject({ metadataFailureCount: 1 });
     } finally {
       server.stop();
       store.close();

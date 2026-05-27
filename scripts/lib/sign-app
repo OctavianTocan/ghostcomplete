@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+resolve_codesign_identity() {
+  if [[ -n "${GHOSTCOMPLETE_CODESIGN_IDENTITY:-}" ]]; then
+    echo "$GHOSTCOMPLETE_CODESIGN_IDENTITY"
+    return 0
+  fi
+
+  local apple_identity
+  apple_identity="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/Apple Development:/{print $2; exit}')"
+  if [[ -n "$apple_identity" ]]; then
+    echo "$apple_identity"
+    return 0
+  fi
+
+  local first_identity
+  first_identity="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/"/{print $2; exit}')"
+  if [[ -n "$first_identity" ]]; then
+    echo "$first_identity"
+    return 0
+  fi
+
+  echo "-"
+}
+
+sign_ghostcomplete_app() {
+  local app_path="$1"
+  local identity
+  identity="$(resolve_codesign_identity)"
+
+  codesign --force --deep --sign "$identity" "$app_path"
+
+  if [[ "$identity" == "-" ]]; then
+    echo "Signed $app_path ad-hoc. Permissions may need to be re-granted after each rebuild."
+  else
+    echo "Signed $app_path with code-signing identity: $identity"
+  fi
+
+  codesign -dr - "$app_path" 2>&1 | sed 's/^/Designated requirement: /'
+}

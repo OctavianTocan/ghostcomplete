@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/load-env"
+source "$ROOT/scripts/lib/sign-app"
 APP_NAME="GhostComplete"
 APP_DIR="$ROOT/build/$APP_NAME.app"
 CONTENTS="$APP_DIR/Contents"
@@ -23,6 +24,6 @@ cp "$ROOT/mac/Info.plist" "$CONTENTS/Info.plist"
 cp -R "$ROOT/ai-service/dist" "$RESOURCES/ai-service/dist"
 cp "$ROOT/ai-service/package.json" "$RESOURCES/ai-service/package.json"
 
-codesign --force --deep --sign - "$APP_DIR"
+sign_ghostcomplete_app "$APP_DIR"
 
 echo "$APP_DIR"

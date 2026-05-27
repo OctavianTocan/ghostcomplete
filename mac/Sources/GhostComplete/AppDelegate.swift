@@ -1,20 +1,17 @@
-import ApplicationServices
 import AppKit
 import Foundation
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsStore()
-    private let keychain = KeychainStore()
-    private lazy var coordinator = CompletionCoordinator(settings: settings, keychain: keychain)
+    private lazy var coordinator = CompletionCoordinator(settings: settings)
     private lazy var splash = SplashWindowController(settings: settings)
+    private lazy var permissions = PermissionCoordinator { [weak self] keyCode, flags in
+        self?.coordinator.handleKey(keyCode, flags: flags) ?? .pass
+    }
 
     private var statusItem: NSStatusItem?
-    private var keyMonitor: KeyMonitor?
-    private var inputMonitoringRetryTimer: Timer?
-    private var inputMonitoringRetryCount = 0
-    private var accessibilityTrusted: Bool?
-    private var inputMonitoringReady: Bool?
+    private var permissionSnapshot: PermissionSnapshot?
     private var sidecarReady: Bool?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -32,17 +29,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         configureMenu()
+        permissions.onUpdate = { [weak self] snapshot in
+            self?.permissionSnapshot = snapshot
+            self?.updateSplash()
+        }
+        splash.onRetryChecks = { [weak self] in
+            self?.permissions.retryNow()
+        }
         splash.show()
         updateSplash()
-        sidecarReady = coordinator.startSidecar()
-        updateSplash()
-        accessibilityTrusted = ensureAccessibility(prompt: true)
-        updateSplash()
-        installKeyMonitor()
+        coordinator.startSidecarAsync { [weak self] ready in
+            self?.sidecarReady = ready
+            self?.updateSplash()
+        }
+        permissions.start(promptForAccessibility: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         TraceLogger.shared.info("app_will_terminate")
+        permissions.stop()
         coordinator.stopSidecar()
         TraceLogger.shared.flush()
     }
@@ -64,72 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TraceLogger.shared.debug("menu_configured")
     }
 
-    private func ensureAccessibility(prompt: Bool) -> Bool {
-        let trusted: Bool
-        if prompt {
-            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            trusted = AXIsProcessTrustedWithOptions(options)
-        } else {
-            trusted = AXIsProcessTrusted()
-        }
-        TraceLogger.shared.info("accessibility_trust_checked", fields: [
-            "trusted": trusted,
-            "prompt": prompt,
-            "bundleId": Bundle.main.bundleIdentifier ?? "unknown",
-            "bundlePath": Bundle.main.bundlePath,
-            "executablePath": Bundle.main.executablePath ?? "unknown"
-        ])
-        return trusted
-    }
-
-    private func installKeyMonitor() {
-        if keyMonitor?.isRunning == true {
-            inputMonitoringReady = true
-            updateSplash()
-            return
-        }
-
-        keyMonitor = KeyMonitor { [weak self] keyCode, flags in
-            self?.coordinator.handleKey(keyCode, flags: flags) ?? .pass
-        }
-
-        if keyMonitor?.start() != true {
-            inputMonitoringReady = false
-            inputMonitoringRetryCount += 1
-            TraceLogger.shared.error("input_monitoring_event_tap_failed", fields: [
-                "retryCount": inputMonitoringRetryCount,
-                "bundleId": Bundle.main.bundleIdentifier ?? "unknown",
-                "bundlePath": Bundle.main.bundlePath,
-                "executablePath": Bundle.main.executablePath ?? "unknown"
-            ])
-            updateSplash()
-            scheduleInputMonitoringRetry()
-        } else {
-            inputMonitoringReady = true
-            inputMonitoringRetryTimer?.invalidate()
-            inputMonitoringRetryTimer = nil
-            TraceLogger.shared.info("input_monitoring_event_tap_started")
-            updateSplash()
-        }
-    }
-
-    private func scheduleInputMonitoringRetry() {
-        guard inputMonitoringRetryTimer == nil else {
-            return
-        }
-
-        inputMonitoringRetryTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.accessibilityTrusted = self?.ensureAccessibility(prompt: false)
-                self?.installKeyMonitor()
-            }
-        }
-    }
-
     private func updateSplash() {
         splash.update(
-            accessibilityTrusted: accessibilityTrusted,
-            inputMonitoringReady: inputMonitoringReady,
+            permissionSnapshot: permissionSnapshot,
             sidecarReady: sidecarReady
         )
     }
@@ -142,8 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showStatus() {
         TraceLogger.shared.info("menu_show_status")
         splash.show()
-        accessibilityTrusted = ensureAccessibility(prompt: false)
-        updateSplash()
+        permissions.refresh(promptForAccessibility: false, source: "menu_show_status")
     }
 
     @objc private func deleteLearnedData() {
@@ -160,8 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TraceLogger.shared.info("menu_restart_sidecar")
         sidecarReady = false
         updateSplash()
-        sidecarReady = coordinator.restartSidecar()
-        updateSplash()
+        coordinator.restartSidecarAsync { [weak self] ready in
+            self?.sidecarReady = ready
+            self?.updateSplash()
+        }
     }
 
     @objc private func quit() {

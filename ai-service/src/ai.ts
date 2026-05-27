@@ -20,6 +20,11 @@ export interface StreamStats {
   rawCompletionLength: number;
 }
 
+export interface MetadataFailure {
+  field: string;
+  message: string;
+}
+
 export interface CompletionResult {
   completion: string;
   usage?: LanguageModelUsage;
@@ -28,6 +33,7 @@ export interface CompletionResult {
   warnings?: CallWarning[];
   response?: LanguageModelResponseMetadata;
   providerMetadata?: ProviderMetadata;
+  metadataFailures: MetadataFailure[];
   stream: StreamStats;
 }
 
@@ -54,6 +60,7 @@ export class FakeCompletionEngine implements CompletionEngine {
         totalTokens: undefined,
       },
       finishReason: "stop",
+      metadataFailures: [],
       stream: {
         chunkCount: completion ? 1 : 0,
         firstChunkLatencyMs: 0,
@@ -123,23 +130,18 @@ async function collectStreamResult(
     rawCompletion += chunk;
   }
 
-  const [usage, totalUsage, finishReason, warnings, response, providerMetadata] = await Promise.all([
-    optional(result.usage),
-    optional(result.totalUsage),
-    optional(result.finishReason),
-    optional(result.warnings),
-    optional(result.response),
-    optional(result.providerMetadata),
-  ]);
+  const metadata = await collectMetadata(result);
+  const response = metadata.values.response as Awaited<ReturnType<typeof streamText>["response"]> | undefined;
 
   return {
     completion: sanitizeContinuation(context, rawCompletion),
-    usage,
-    totalUsage,
-    finishReason,
-    warnings,
+    usage: metadata.values.usage as LanguageModelUsage | undefined,
+    totalUsage: metadata.values.totalUsage as LanguageModelUsage | undefined,
+    finishReason: metadata.values.finishReason as FinishReason | undefined,
+    warnings: metadata.values.warnings as CallWarning[] | undefined,
     response: response ? omitResponseMessages(response) : undefined,
-    providerMetadata,
+    providerMetadata: metadata.values.providerMetadata as ProviderMetadata | undefined,
+    metadataFailures: metadata.failures,
     stream: {
       chunkCount,
       firstChunkLatencyMs,
@@ -149,12 +151,48 @@ async function collectStreamResult(
   };
 }
 
-async function optional<T>(promise: Promise<T>): Promise<T | undefined> {
-  try {
-    return await promise;
-  } catch {
-    return undefined;
+type MetadataField = "usage" | "totalUsage" | "finishReason" | "warnings" | "response" | "providerMetadata";
+
+async function collectMetadata(result: ReturnType<typeof streamText>): Promise<{
+  values: Partial<Record<MetadataField, unknown>>;
+  failures: MetadataFailure[];
+}> {
+  const fields: Array<[MetadataField, Promise<unknown>]> = [
+    ["usage", Promise.resolve(result.usage)],
+    ["totalUsage", Promise.resolve(result.totalUsage)],
+    ["finishReason", Promise.resolve(result.finishReason)],
+    ["warnings", Promise.resolve(result.warnings)],
+    ["response", Promise.resolve(result.response)],
+    ["providerMetadata", Promise.resolve(result.providerMetadata)],
+  ];
+
+  const settled: Array<
+    { field: MetadataField; value: unknown } | { field: MetadataField; failure: string }
+  > = await Promise.all(
+    fields.map(async ([field, promise]) => {
+      try {
+        return { field, value: await promise };
+      } catch (error) {
+        return { field, failure: errorMessage(error) };
+      }
+    }),
+  );
+
+  const values: Partial<Record<MetadataField, unknown>> = {};
+  const failures: MetadataFailure[] = [];
+  for (const entry of settled) {
+    if ("value" in entry) {
+      values[entry.field] = entry.value;
+    } else {
+      failures.push({ field: entry.field, message: entry.failure });
+    }
   }
+
+  return { values, failures };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function omitResponseMessages(

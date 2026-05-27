@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/load-env"
+source "$ROOT/scripts/lib/sign-app"
 LAUNCH=0
 APP_NAME="GhostComplete"
 APP_BUNDLE_ID="dev.octavian.GhostComplete"
@@ -28,7 +29,19 @@ quit_running_app() {
   fi
 
   echo "$APP_NAME is running; quitting it before replacing the app bundle..."
-  osascript -e "tell application id \"$APP_BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+  osascript -e "tell application id \"$APP_BUNDLE_ID\" to quit" >/dev/null 2>&1 &
+  local osascript_pid="$!"
+  for _ in {1..20}; do
+    if ! kill -0 "$osascript_pid" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+  if kill -0 "$osascript_pid" >/dev/null 2>&1; then
+    kill "$osascript_pid" >/dev/null 2>&1 || true
+  fi
+  wait "$osascript_pid" >/dev/null 2>&1 || true
+
   if wait_for_quit; then
     echo "$APP_NAME quit cleanly."
     return 0
@@ -51,7 +64,7 @@ quit_running_app
 
 rm -rf "$INSTALL_PATH"
 cp -R "$APP_PATH" "$INSTALL_PATH"
-codesign --force --deep --sign - "$INSTALL_PATH"
+sign_ghostcomplete_app "$INSTALL_PATH"
 
 if [[ -n "${AI_GATEWAY_API_KEY:-}" ]]; then
   security add-generic-password \
@@ -65,7 +78,8 @@ else
 fi
 
 echo "Installed $INSTALL_PATH"
-echo "Launch it, then grant Accessibility and Input Monitoring permissions when macOS prompts."
+echo "Launch it, then grant Accessibility and Input Monitoring permissions to this exact app path when macOS prompts."
+echo "If System Settings already shows GhostComplete but the app says blocked, run: bun run reset-perms"
 
 if [[ "$LAUNCH" == "1" ]]; then
   open "$INSTALL_PATH"

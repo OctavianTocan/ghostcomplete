@@ -68,4 +68,17 @@ final class KeyMonitor {
         CGEvent.tapEnable(tap: tap, enable: true)
         return true
     }
+
+    func stop() {
+        precondition(Thread.isMainThread, "KeyMonitor must be stopped on the main run loop.")
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+        }
+        if let eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+            CFMachPortInvalidate(eventTap)
+        }
+        runLoopSource = nil
+        eventTap = nil
+    }
 }

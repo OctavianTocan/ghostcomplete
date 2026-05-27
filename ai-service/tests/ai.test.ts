@@ -45,5 +45,6 @@ describe("AI SDK wrapper", () => {
     expect(result.usage).toEqual({ inputTokens: 1, outputTokens: 4, totalTokens: 5 });
     expect(result.finishReason).toBe("stop");
     expect(result.response?.modelId).toBe("mock-model");
+    expect(result.metadataFailures).toEqual([]);
   });
 });

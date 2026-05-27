@@ -5,7 +5,6 @@ import Foundation
 @MainActor
 final class CompletionCoordinator {
     private let settings: SettingsStore
-    private let keychain: KeychainStore
     private let reader: AccessibilityReader
     private let insertion: InsertionController
     private let sidecar: SidecarClient
@@ -14,17 +13,16 @@ final class CompletionCoordinator {
 
     private var latestRequestId: String?
     private var activeSnapshot: FocusSnapshot?
+    private var sidecarStartInFlight = false
 
     init(
         settings: SettingsStore,
-        keychain: KeychainStore,
         reader: AccessibilityReader = AccessibilityReader(),
         insertion: InsertionController = InsertionController(),
         overlay: OverlayPanel = OverlayPanel(),
         debouncer: Debouncer = Debouncer(delay: 0.35)
     ) {
         self.settings = settings
-        self.keychain = keychain
         self.reader = reader
         self.insertion = insertion
         self.overlay = overlay
@@ -32,20 +30,63 @@ final class CompletionCoordinator {
         self.sidecar = SidecarClient(settings: settings)
     }
 
-    @discardableResult
-    func startSidecar() -> Bool {
-        let envKey = ProcessInfo.processInfo.environment["AI_GATEWAY_API_KEY"]
-        let keychainKey = keychain.string(account: "AI_GATEWAY_API_KEY")
-        let apiKey = keychainKey ?? envKey
-        TraceLogger.shared.info("sidecar_start_requested", fields: [
-            "hasKeychainKey": keychainKey != nil,
-            "hasEnvKey": envKey?.isEmpty == false
-        ])
-        if keychainKey == nil, let envKey, !envKey.isEmpty {
-            try? keychain.setString(envKey, account: "AI_GATEWAY_API_KEY")
-            TraceLogger.shared.info("api_key_seeded_to_keychain")
+    func startSidecarAsync(onStatus: (@MainActor (Bool) -> Void)? = nil) {
+        if sidecar.isReady {
+            onStatus?(true)
+            return
+        }
+        guard !sidecarStartInFlight else {
+            TraceLogger.shared.info("sidecar_start_already_in_flight")
+            return
         }
 
+        sidecarStartInFlight = true
+        let envKey = ProcessInfo.processInfo.environment["AI_GATEWAY_API_KEY"]
+        TraceLogger.shared.info("sidecar_start_requested", fields: [
+            "hasEnvKey": envKey?.isEmpty == false
+        ])
+
+        if let envKey, !envKey.isEmpty {
+            TraceLogger.shared.info("api_key_resolution_finished", fields: [
+                "hasKeychainKey": false,
+                "hasEnvKey": true,
+                "hasApiKey": true,
+                "keychainSkipped": true
+            ])
+            let ready = startSidecar(apiKey: envKey)
+            sidecarStartInFlight = false
+            onStatus?(ready)
+            return
+        }
+
+        DispatchQueue.global(qos: .utility).async {
+            TraceLogger.shared.info("api_key_resolution_started")
+            let backgroundKeychain = KeychainStore()
+            let keychainKey = backgroundKeychain.string(account: "AI_GATEWAY_API_KEY")
+            let apiKey = keychainKey
+
+            TraceLogger.shared.info("api_key_resolution_finished", fields: [
+                "hasKeychainKey": keychainKey != nil,
+                "hasEnvKey": false,
+                "hasApiKey": apiKey?.isEmpty == false
+            ])
+
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+                let ready = self.startSidecar(apiKey: apiKey)
+                self.sidecarStartInFlight = false
+                onStatus?(ready)
+            }
+        }
+    }
+
+    @discardableResult
+    private func startSidecar(apiKey: String?) -> Bool {
+        TraceLogger.shared.info("sidecar_launch_requested", fields: [
+            "hasApiKey": apiKey?.isEmpty == false
+        ])
         do {
             try sidecar.start(apiKey: apiKey)
             TraceLogger.shared.info("sidecar_start_succeeded")
@@ -62,11 +103,10 @@ final class CompletionCoordinator {
         sidecar.stop()
     }
 
-    @discardableResult
-    func restartSidecar() -> Bool {
+    func restartSidecarAsync(onStatus: (@MainActor (Bool) -> Void)? = nil) {
         TraceLogger.shared.info("sidecar_restart_requested")
         sidecar.stop()
-        return startSidecar()
+        startSidecarAsync(onStatus: onStatus)
     }
 
     func handleKey(_ keyCode: CGKeyCode, flags: CGEventFlags) -> KeyDecision {
@@ -116,7 +156,7 @@ final class CompletionCoordinator {
     private func requestCompletion() {
         guard sidecar.isReady else {
             TraceLogger.shared.warn("completion_sidecar_not_ready")
-            startSidecar()
+            startSidecarAsync()
             return
         }
 
